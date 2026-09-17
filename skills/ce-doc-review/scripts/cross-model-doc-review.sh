@@ -408,21 +408,20 @@ case "$REVIEW_SCOPE" in
   default|all) ;;
   *) skip "CROSS_MODEL_REVIEW_SCOPE '$REVIEW_SCOPE' invalid (want default|all); skipping" ;;
 esac
+HOST_ONLY_AT_SCOPE_ALL=0
 case "$REVIEWER_NAME" in
   security-lens)  PERSONA_FILE="security-lens-reviewer" ;;
-  adversarial)    PERSONA_FILE="adversarial-document-reviewer" ;;
+  adversarial)    PERSONA_FILE="adversarial-document-reviewer"; HOST_ONLY_AT_SCOPE_ALL=1 ;;
   product-lens)   PERSONA_FILE="product-lens-reviewer" ;;
-  whole-doc)      PERSONA_FILE="whole-doc-reviewer" ;;   # broad whole-document sweep (R20/U9); embeds the full doc, no in-process twin
+  whole-doc)      PERSONA_FILE="whole-doc-reviewer"; HOST_ONLY_AT_SCOPE_ALL=1 ;;   # broad whole-document sweep (R20/U9); embeds the full doc, no in-process twin
   coherence)      PERSONA_FILE="coherence-reviewer" ;;
   design-lens)    PERSONA_FILE="design-lens-reviewer" ;;
   scope-guardian) PERSONA_FILE="scope-guardian-reviewer" ;;
   feasibility) skip "reviewer-name 'feasibility' needs repository reads and cannot run on a tool-less peer; skipping" ;;
   *) skip "reviewer-name '$REVIEWER_NAME' is not a cross-model reviewer (want security-lens|adversarial|product-lens|whole-doc|coherence|design-lens|scope-guardian); skipping" ;;
 esac
-if [ "$REVIEW_SCOPE" = "all" ]; then
-  case "$REVIEWER_NAME" in
-    adversarial|whole-doc) skip "reviewer-name '$REVIEWER_NAME' runs on the host at scope all; skipping" ;;
-  esac
+if [ "$REVIEW_SCOPE" = "all" ] && [ "$HOST_ONLY_AT_SCOPE_ALL" = 1 ]; then
+  skip "reviewer-name '$REVIEWER_NAME' runs on the host at scope all; skipping"
 fi
 
 # --- optional decision primer (round 2+) ------------------------------------
