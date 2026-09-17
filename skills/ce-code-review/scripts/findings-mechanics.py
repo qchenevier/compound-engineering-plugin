@@ -78,6 +78,9 @@ HOST_FAMILY = "host"
 HOST_ENTRY = {"family": HOST_FAMILY, "external": False, "independence_verified": False}
 
 
+EXTERNAL_PROVENANCES = ("external-verified", "external-unverified")
+
+
 class FinishInputError(Exception):
     pass
 
@@ -93,7 +96,12 @@ def peer_artifact_paths(finish_input: Path) -> list[Path]:
         raise FinishInputError("finish input is not an object")
     entries: list[Any] = []
     if isinstance(data.get("peers"), list):
-        entries.extend(data["peers"])
+        # A host-fallback entry ran in-process, so any artifact it names is not a peer's.
+        entries.extend(
+            entry
+            for entry in data["peers"]
+            if isinstance(entry, dict) and entry.get("provenance") in EXTERNAL_PROVENANCES
+        )
     if isinstance(data.get("peer"), dict):
         entries.append(data["peer"])
     paths: list[Path] = []
@@ -299,11 +307,18 @@ def main() -> int:
                     supplied_independent if isinstance(supplied_independent, list) else []
                 )
                 supplied_families = finding.pop("reviewer_families", None)
-                if not isinstance(supplied_families, dict):
-                    supplied_families = {}
-                finding_families = {
-                    name: family_entry(supplied_families.get(name)) for name in reviewer_set
-                }
+                if args.finish_input:
+                    # Only the merge leaf's rerun, which has no finish input, builds
+                    # this map; here a return could be spoofing one (KTD6).
+                    finding_families = {
+                        name: dict(peer_families.get(name, HOST_ENTRY)) for name in reviewer_set
+                    }
+                else:
+                    if not isinstance(supplied_families, dict):
+                        supplied_families = {}
+                    finding_families = {
+                        name: family_entry(supplied_families.get(name)) for name in reviewer_set
+                    }
                 independent_names = tuple(
                     name
                     for name in independent_list

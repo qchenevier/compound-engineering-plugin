@@ -8,10 +8,11 @@ Everything in `references/cross-model-review.md` still applies: host attestation
 
 ## Which reviewers go external
 
-- Send every selected persona whose short name the worker accepts: `correctness`, `security`, `performance`, `reliability`, `maintainability`, `api-contract`, `data-migration`, `project-standards`, `julik-frontend-races`, and `swift-ios`. The worker's allowlist decides eligibility. It refuses every other name, so never send one.
+- Send every selected persona whose short name the worker accepts: `correctness`, `security`, `performance`, `reliability`, `maintainability`, `api-contract`, `data-migration`, `julik-frontend-races`, and `swift-ios`. The worker's allowlist decides eligibility. It refuses every other name, so never send one.
 - `learnings-researcher`, `agent-native-reviewer`, and `deployment-verification-agent` stay on the host, because they return prose rather than the findings schema.
 - `previous-comments-reviewer` stays on the host, because it needs `gh` and network access.
 - `testing-reviewer` stays on the host, because its mutation testing writes to the tree.
+- `project-standards-reviewer` stays on the host, because the local project-standards review owns scoped-rule coverage (`references/finish-review.md`).
 - `adversarial-reviewer` stays on the host. Its job is to challenge the other reviewers, and at this scope they run on another model. The worker still accepts `adversarial`, but only the default scope sends it.
 
 Stage 3d binds both sets at once: the external set is every eligible selected persona, and the host set is every other selected reviewer plus the twin of any persona whose job did not start. Host reviewers are dispatched in the Stage 4 local wave as `references/dispatch-reviewers.md` describes, at their usual model tier. An external persona's in-process twin is dispatched only as its fallback.
@@ -53,6 +54,6 @@ Record `--end peer --candidates <count of findings across every collected artifa
 
 - `external-verified`: the artifact records `independence_verified: true`.
 - `external-unverified`: the artifact exists but does not record `independence_verified: true`.
-- `host-fallback`: the in-process twin ran in place of the external job; set `reason`.
+- `host-fallback`: the in-process twin ran in place of the external job; set `reason` and set `artifact` to `null`. The findings helper folds only entries whose provenance is `external-verified` or `external-unverified`, so it ignores an artifact named on any other entry.
 
 A selected reviewer with no `peers` entry is `host-by-design`: the adversarial persona, every ineligible persona, and every persona the worker refused. Set the legacy `peer` object's fields to `null`, because no adversarial job runs at this scope. A twin's return joins `raw-returns.json` like any local return. The findings helper folds each recorded artifact, so never copy an artifact into `raw-returns.json`. Delete every consumed job directory before the merge leaf starts.

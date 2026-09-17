@@ -2073,10 +2073,11 @@ describe("cross-model-adversarial-review argv integrity", () => {
 describe("cross-model-adversarial-review reviewer-name argument (all-reviewers scope)", () => {
   const ELIGIBLE = [
     "adversarial", "correctness", "security", "performance", "reliability", "maintainability",
-    "api-contract", "data-migration", "project-standards", "julik-frontend-races", "swift-ios",
+    "api-contract", "data-migration", "julik-frontend-races", "swift-ios",
   ]
   const EXCLUDED = [
     "learnings-researcher", "agent-native", "deployment-verification-agent", "previous-comments", "testing",
+    "project-standards",
   ]
   const PERSONAS_DIR = path.join(__dirname, "../../skills/ce-code-review/references/personas")
 

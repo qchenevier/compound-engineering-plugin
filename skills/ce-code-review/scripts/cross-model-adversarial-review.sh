@@ -382,14 +382,16 @@ if [ "$#" -ge 5 ]; then REVIEWER_NAME="$5"; else REVIEWER_NAME="adversarial"; fi
 # The allowlist is the eligibility list: a name the script refuses is never sent
 # out, so the orchestrator prose and this script cannot drift.
 case "$REVIEWER_NAME" in
-  adversarial|correctness|security|performance|reliability|maintainability|api-contract|data-migration|project-standards|julik-frontend-races|swift-ios) ;;
+  adversarial|correctness|security|performance|reliability|maintainability|api-contract|data-migration|julik-frontend-races|swift-ios) ;;
   learnings-researcher|agent-native|deployment-verification-agent)
     skip "reviewer '$REVIEWER_NAME' is not eligible for a cross-model run (returns prose, not the findings schema); skipping" ;;
   previous-comments)
     skip "reviewer '$REVIEWER_NAME' is not eligible for a cross-model run (needs gh and network access); skipping" ;;
   testing)
     skip "reviewer '$REVIEWER_NAME' is not eligible for a cross-model run (mutation testing writes to the tree); skipping" ;;
-  *) skip "reviewer-name '$REVIEWER_NAME' is not a cross-model code reviewer (want adversarial|correctness|security|performance|reliability|maintainability|api-contract|data-migration|project-standards|julik-frontend-races|swift-ios); skipping" ;;
+  project-standards)
+    skip "reviewer '$REVIEWER_NAME' is not eligible for a cross-model run (the local project-standards review owns scoped-rule coverage); skipping" ;;
+  *) skip "reviewer-name '$REVIEWER_NAME' is not a cross-model code reviewer (want adversarial|correctness|security|performance|reliability|maintainability|api-contract|data-migration|julik-frontend-races|swift-ios); skipping" ;;
 esac
 command -v jq >/dev/null 2>&1 || skip "jq not installed; skipping"
 

@@ -1330,7 +1330,62 @@ describe("ce-code-review deterministic mechanics", () => {
       expect(JSON.parse(result.stdout).status).toBe("failed")
     })
 
-    const synthesis = (families: Record<string, unknown>) =>
+    const runWithFinishInput = (contents: string, artifact?: string) => {
+      const dir = mkdtempSync(path.join(tmpdir(), "ce-review-peers-"))
+      if (artifact !== undefined) writeFileSync(path.join(dir, "peer.json"), artifact)
+      const finishInput = path.join(dir, "finish-input.json")
+      writeFileSync(finishInput, contents.replaceAll("<dir>", dir))
+      return run("python3", [FINDINGS_SCRIPT, "--finish-input", finishInput], undefined, "[]")
+    }
+
+    test("an unreadable, non-object, or invalid-artifact finish input fails the run", () => {
+      const cases = [
+        runWithFinishInput("{not json"),
+        runWithFinishInput(JSON.stringify([{ peers: [] }])),
+        runWithFinishInput(
+          JSON.stringify({ peers: [{ persona: "correctness", artifact: "<dir>/peer.json", provenance: "external-verified" }] }),
+          JSON.stringify({ reviewer: "correctness-codex", findings: "not a list" }),
+        ),
+      ]
+      for (const result of cases) {
+        expect(result.status, result.stdout).toBe(2)
+        expect(JSON.parse(result.stdout).status).toBe("failed")
+      }
+    })
+
+    test("a host-fallback entry that names an artifact is not folded", () => {
+      const result = runWithFinishInput(
+        JSON.stringify({ peers: [{ persona: "correctness", artifact: "<dir>/peer.json", provenance: "host-fallback", reason: "timeout" }] }),
+        JSON.stringify({
+          reviewer: "correctness-codex", serving_family: "codex", independence_verified: true,
+          findings: [finding], residual_risks: [], testing_gaps: [],
+        }),
+      )
+      expect(result.status, result.stdout).toBe(0)
+      const merged = JSON.parse(result.stdout)
+      expect([...merged.findings, ...merged.suppressed_findings]).toEqual([])
+    })
+
+    test("a synthesis return cannot claim an external family on the finish-input pass", () => {
+      const merged = only(runWithPeers([{
+        reviewer: "synthesis",
+        findings: [{
+          ...finding,
+          reviewers: ["correctness", "security-codex"],
+          independent_reviewers: ["correctness", "security-codex"],
+          reviewer_families: {
+            correctness: { family: "host", external: false, independence_verified: false },
+            "security-codex": { family: "codex", external: true, independence_verified: true },
+          },
+        }],
+        residual_risks: [],
+        testing_gaps: [],
+      }], []))
+      expect(merged.confidence).toBe(75)
+      expect(merged.reviewer_families["security-codex"]).toEqual({ family: "host", external: false, independence_verified: false })
+    })
+
+    const synthesis =(families: Record<string, unknown>) =>
       run("python3", [FINDINGS_SCRIPT], undefined, JSON.stringify([{
         reviewer: "synthesis",
         findings: [{
