@@ -163,6 +163,14 @@ The pass needs a peer *agent* CLI (`codex`, `claude`, `grok`, `cursor-agent`, or
 
 The pass embeds the document into the peer prompt and sends it to an external provider. `CROSS_MODEL_PEERS` restricts which providers may receive content. Peers are strictly read-only. Failures never block the review; an exact provider-overload 529 gets one same-route retry, never an unbounded retry loop. A second target remains opt-in (`CROSS_MODEL_MAX_PEERS=2`).
 
+#### Sending every reviewer to the peer
+
+`cross_model_doc_review_scope: all` in CE config sends every selected reviewer except `feasibility` to the same peer target, model, and effort as above. `feasibility` stays on the host because it reads the repository and doc peers run without tools. The adversarial reviewer also stays on the host, so it can challenge the external reviewers, and the whole-document sweep does not run. A finding from an external reviewer keeps the same auto-apply eligibility its host version would have had.
+
+All external jobs start at once, with one shared deadline. A reviewer whose job fails, is skipped, or misses the deadline falls back to its host version, and Coverage names it and the reason. The first quota or authentication failure stops the remaining jobs and moves their reviewers to the host. `all` costs more external jobs and more wall-clock time.
+
+`cross_model_review_mode: off` still wins unless you ask for external review in conversation. A request in conversation sets the scope for one run. When the peer is the host's own model family or no route is installed, the run uses the default scope and says why.
+
 ---
 
 ## Quick Example

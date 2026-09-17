@@ -66,3 +66,32 @@ describe("cross_model_review_mode egress gate", () => {
     )
   })
 })
+
+// The two scope keys widen the cross-model pass from one lens to every eligible
+// reviewer, one key per review skill (plan 2026-09-17-1201, R1-R4).
+describe("cross-model review scope keys", () => {
+  const scopeKeys = [
+    { key: "cross_model_code_review_scope", guide: "docs/guides/ce-code-review.md" },
+    { key: "cross_model_doc_review_scope", guide: "docs/guides/ce-doc-review.md" },
+  ]
+
+  test("config template pins both keys and says the review mode gate wins", () => {
+    const template = read("skills/ce-setup/references/config-template.yaml")
+    for (const { key } of scopeKeys) {
+      expect(template).toMatch(new RegExp(`# ${key}: all\\s+# default \\| all \\(default: default\\)`))
+    }
+    expect(template).toMatch(/`cross_model_review_mode: off`[\s\S]{0,80}wins/)
+    expect(read(".compound-engineering/config.example.yaml")).toBe(template)
+  })
+
+  test("configuration reference and each skill guide document their key", () => {
+    const configuration = read("docs/guides/configuration.md")
+    for (const { key, guide } of scopeKeys) {
+      expect(configuration).toContain(`\`${key}\``)
+      const guideText = read(guide)
+      expect(guideText).toContain(`${key}: all`)
+      expect(guideText).toMatch(/falls? back to/)
+      expect(guideText).toContain("one shared deadline")
+    }
+  })
+})

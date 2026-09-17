@@ -126,11 +126,23 @@
 # Effort levels: claude low|medium|high|xhigh|max, codex minimal|low|medium|
 # high|xhigh, grok low|medium|high; cursor/composer routes take none. A value
 # the peer cannot honor skips the pass with a stated reason -- never substituted.
+#
+# `cross_model_code_review_scope` (ce-code-review) and
+# `cross_model_doc_review_scope` (ce-doc-review) decide how many reviewers the
+# pass sends. `default` keeps today's pass. `all` sends every reviewer that can
+# run externally to the target chosen above, with the same model and effort;
+# the adversarial reviewer and the rest stay on the host, and a reviewer whose
+# external run fails runs on the host instead. `all` starts more external jobs
+# and takes longer. `cross_model_review_mode: off` still wins unless you ask for
+# external review in conversation, and a conversation request picks the scope
+# for one run.
 
 # cross_model_review_mode: off   # auto | off (default: auto)
 # cross_model_peer: codex          # codex | claude | grok | cursor | composer | opencode
 # cross_model_model: fable         # model alias or full id for the resolved peer target (no default)
 # cross_model_effort: xhigh        # reasoning effort for the resolved peer target (no default)
+# cross_model_code_review_scope: all   # default | all (default: default)
+# cross_model_doc_review_scope: all    # default | all (default: default)
 
 # --- ce-work implementation engine ---
 # Standing preferences for who authors implementation units. Live

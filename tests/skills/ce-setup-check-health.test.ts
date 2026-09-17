@@ -741,6 +741,77 @@ describe("ce-setup check-health", () => {
   })
 })
 
+// cross_model_code_review_scope and cross_model_doc_review_scope are ordinary
+// scalars (local, then tracked). An invalid value is ignored with a warning and
+// resolution continues to the next layer, then to `default`.
+describe("ce-setup check-health cross-model review scopes", () => {
+  async function runWithConfigs(files: { local?: string; tracked?: string }): Promise<RunResult> {
+    const root = await mkdtemp(path.join(os.tmpdir(), "ce-setup-health-scope-"))
+    try {
+      await initGitRepo(root)
+      const configDirectory = path.join(root, ".compound-engineering")
+      await mkdir(configDirectory, { recursive: true })
+      await copyFile(configTemplate, path.join(configDirectory, "config.example.yaml"))
+      await writeFile(path.join(root, ".gitignore"), ".compound-engineering/*.local.yaml\n")
+      if (files.local !== undefined) await writeFile(path.join(configDirectory, "config.local.yaml"), files.local)
+      if (files.tracked !== undefined) await writeFile(path.join(configDirectory, "config.yaml"), files.tracked)
+      return await runCheckHealth(root, "/usr/bin:/bin")
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }
+
+  test("unset keys report default and no warning", async () => {
+    const result = await runWithConfigs({})
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("Cross-model code review scope: default (setting is commented or missing)")
+    expect(result.stdout).toContain("Cross-model doc review scope: default (setting is commented or missing)")
+    expect(result.stdout).not.toContain("_review_scope")
+  })
+
+  test("local all is reported for the code review key only", async () => {
+    const result = await runWithConfigs({ local: "cross_model_code_review_scope: all\n" })
+    expect(result.stdout).toContain("Cross-model code review scope: all (from config.local.yaml)")
+    expect(result.stdout).toContain("Cross-model doc review scope: default (setting is commented or missing)")
+  })
+
+  test("local default overrides tracked all", async () => {
+    const result = await runWithConfigs({
+      local: "cross_model_code_review_scope: default\n",
+      tracked: "cross_model_code_review_scope: all\ncross_model_doc_review_scope: all\n",
+    })
+    expect(result.stdout).toContain("Cross-model code review scope: default (from config.local.yaml)")
+    expect(result.stdout).toContain("Cross-model doc review scope: all (from config.yaml)")
+  })
+
+  test("an invalid local value falls through to tracked with a warning", async () => {
+    const result = await runWithConfigs({
+      local: "cross_model_doc_review_scope: everything\n",
+      tracked: "cross_model_doc_review_scope: all\n",
+    })
+    expect(result.stdout).toContain("Cross-model doc review scope: all (from config.yaml)")
+    expect(result.stdout).toContain(
+      "Invalid cross_model_doc_review_scope 'everything' in config.local.yaml ignored; valid values are default and all",
+    )
+    expect(result.stdout).toContain("1 project issue(s) found")
+  })
+
+  test("invalid values in both layers fall back to default with a warning for each", async () => {
+    const result = await runWithConfigs({
+      local: "cross_model_code_review_scope: everything\n",
+      tracked: "cross_model_code_review_scope: some\n",
+    })
+    expect(result.stdout).toContain("Cross-model code review scope: default (no valid setting)")
+    expect(result.stdout).toContain(
+      "Invalid cross_model_code_review_scope 'everything' in config.local.yaml ignored; valid values are default and all",
+    )
+    expect(result.stdout).toContain(
+      "Invalid cross_model_code_review_scope 'some' in config.yaml ignored; valid values are default and all",
+    )
+    expect(result.stdout).toContain("2 project issue(s) found")
+  })
+})
+
 describe("ce-setup check-health docs_root resolution", () => {
   async function repoWithConfigs(
     files: { local?: string; tracked?: string; extra?: (root: string) => Promise<void> },

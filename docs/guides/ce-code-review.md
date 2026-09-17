@@ -132,7 +132,20 @@ Agreement between the peer and another in-process reviewer is a strong promotion
 
 The prerequisite is a peer agent CLI. The pass drives a read-only agent CLI (`codex`, `claude`, `grok`, `cursor-agent`, or `opencode`) so the peer can inspect the tree itself; a bare `OPENAI_API_KEY`, Anthropic key, or Gemini key does not enable it. Peers are discovered on `PATH`, plus the CLI bundled inside the Codex desktop app (`ChatGPT.app/Contents/Resources/codex` since the July 2026 app merger, or `Codex.app/…` on older installs; the app does not link it onto `PATH`). Gemini has no standalone peer target; it participates only through Cursor when `cursor-agent` attests a Gemini serving family. With no peer CLI installed the skill runs the in-process adversarial reviewer and reports "cross-model pass: not run"; the skip reason names what to install.
 
-This shares the provider/route kernel with `ce-doc-review` but keeps a narrower scope: adversarial-only, diff/work-tree delivery, not doc-review's judgment trio or whole-doc sweep.
+This shares the provider/route kernel with `ce-doc-review`. At the default scope it sends only the adversarial lens, with diff/work-tree delivery, not doc-review's judgment trio or whole-doc sweep.
+
+### Sending every reviewer to the peer
+
+`cross_model_code_review_scope: all` in CE config sends every selected reviewer that can run externally to the same peer target, model, and effort as above. Each external reviewer is reported as `<persona>-<provider>`. These reviewers stay on the host:
+
+- the adversarial reviewer, so it can challenge the external reviewers;
+- `learnings-researcher`, `agent-native-reviewer`, and `deployment-verification-agent`, which do not return schema JSON;
+- `previous-comments-reviewer`, which needs `gh` and the network;
+- `testing-reviewer`, whose mutation testing writes files.
+
+All external jobs start at once, with one shared deadline. A reviewer whose job fails, is skipped, or misses the deadline falls back to its host version, and the report names it and the reason. The first quota or authentication failure stops the remaining jobs and moves their reviewers to the host. `all` costs more external jobs and more wall-clock time.
+
+`cross_model_review_mode: off` still wins unless you ask for external review in conversation. A request in conversation ("send all reviewers to codex", "only the usual cross-model pass this time") sets the scope for one run. Remote PR or branch diffs, and the lite and focused review depths, keep the default scope. When the peer is the host's own model family or no route is installed, the run uses the default scope and says why.
 
 ## Severity and autofix class are orthogonal
 
