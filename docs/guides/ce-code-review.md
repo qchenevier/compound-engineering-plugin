@@ -143,7 +143,7 @@ This shares the provider/route kernel with `ce-doc-review`. At the default scope
 - `previous-comments-reviewer`, which needs `gh` and the network;
 - `testing-reviewer`, whose mutation testing writes files.
 
-All external jobs start at once, with one shared deadline. A reviewer whose job fails, is skipped, or misses the deadline falls back to its host version, and the report names it and the reason. The first quota or authentication failure stops the remaining jobs and moves their reviewers to the host. `all` costs more external jobs and more wall-clock time.
+All external jobs start at once, with one shared deadline. A reviewer whose job fails, is skipped, or misses the deadline falls back to its host version, and the report names it and the reason. The first rate-limit, quota, or authentication failure stops the remaining jobs and moves their reviewers to the host. `all` costs more external jobs and more wall-clock time.
 
 `cross_model_review_mode: off` still wins unless you ask for external review in conversation. A request in conversation ("send all reviewers to codex", "only the usual cross-model pass this time") sets the scope for one run. Remote PR or branch diffs, and the lite and focused review depths, keep the default scope. When the peer is the host's own model family or no route is installed, the run uses the default scope and says why.
 

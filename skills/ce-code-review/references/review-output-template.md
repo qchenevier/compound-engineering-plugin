@@ -100,6 +100,7 @@ Detail lines for Pre-existing and history-dependent P0/P1 findings may include t
 - Removable surface: ~40 lines / 1 file across findings #5 (signal only, not a target)
 - Residual risks: No rate limiting on export endpoint
 - Testing gaps: No test for concurrent export requests
+- Reviewers: correctness-codex (external-verified; requested model and effort named, serving model unverified), security-codex (external-verified), performance (host-fallback: its external job timed out), adversarial (host-by-design), testing (host-by-design)
 
 ---
 
@@ -151,7 +152,7 @@ This fails because of the **box-drawing `────` separators between items*
 - **Learnings & Past Solutions section** -- results from the `learnings-researcher` local prompt asset, with links to <root>/solutions/ files
 - **Agent-Native Gaps section** -- results from the `agent-native-reviewer` local prompt asset. Omit if no gaps found.
 - **Deployment Notes section** -- key checklist items from the `deployment-verification-agent` local prompt asset. Omit if the prompt did not run. Schema drift surfaces as `data-migration` findings — no separate section.
-- **Coverage section** -- suppressed count, validation outcome counts when Stage 5b ran (confirmed, rejected, unresolved, malformed, failed, shortcut-skipped) with the reason for each non-confirmed outcome, removable surface (only when deletion-oriented maintainability findings exist; approximate net lines/files removable if applied -- a dead-weight signal, never a reduction target, omit otherwise), residual risks, testing gaps, failed reviewers
+- **Coverage section** -- suppressed count, validation outcome counts when Stage 5b ran (confirmed, rejected, unresolved, malformed, failed, shortcut-skipped) with the reason for each non-confirmed outcome, removable surface (only when deletion-oriented maintainability findings exist; approximate net lines/files removable if applied -- a dead-weight signal, never a reduction target, omit otherwise), residual risks, testing gaps, failed reviewers, and each selected reviewer's provenance from `finish-input.json`: `external-verified`, `external-unverified`, `host-fallback` with its reason, or `host-by-design`. A run with no external job may state provenance in one line, as the cross-model skip or fallback sentence
 - **Summary uses blockquotes** for verdict, reasoning, and fix order
 - **Horizontal rule** (`---`) separates findings from verdict
 - **`###` headers** for each section -- never plain text headers

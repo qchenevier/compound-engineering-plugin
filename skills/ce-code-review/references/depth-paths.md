@@ -1,6 +1,6 @@
 # Lite and focused paths
 
-Read this only when the Review depth gate in `references/modes-and-output.md` selected lite or focused; a full run never opens it. Both paths finish in the dispatch context and write the same receipt shape that reference defines.
+Read this only when the Review depth gate in `references/modes-and-output.md` selected lite or focused; a full run never opens it. Both paths finish in the dispatch context and write the same receipt shape that reference defines. Whatever `cross_model_code_review_scope` or a conversation request says, both run the cross-model pass at scope `default`, because scope `all` needs the full roster to send.
 
 ### Lite path
 

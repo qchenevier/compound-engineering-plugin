@@ -205,9 +205,14 @@ describe("ce-code-review always-loaded body pins", () => {
     const body = await readRepoFile("skills/ce-code-review/SKILL.md")
 
     expect(body).toMatch(/before any local persona dispatch/i)
-    expect(body).toMatch(/A started peer replaces the local adversarial persona/i)
+    // Plan 2026-09-17-1201, U5: at `cross_model_code_review_scope: all` the adversarial persona
+    // stays local and one job runs per external reviewer, so the adversarial replacement is
+    // conditional on the default scope and the detached-work rule counts every peer job.
+    expect(body).toMatch(/Each started peer job replaces the local persona it covers/i)
+    expect(body).toMatch(/At the default scope, a started peer replaces the local adversarial persona/i)
     expect(body).toMatch(/Detaching local review into a polled background job is forbidden/i)
-    expect(body).toMatch(/the cross-model peer is the only detached work/i)
+    expect(body).toMatch(/Cross-model peer jobs are the only detached work/i)
+    expect(body).not.toMatch(/the cross-model peer is the only detached work/i)
   })
 
   test("synthesis provenance fires from the window; the peer tuple is pinned where it is read", async () => {
@@ -628,7 +633,10 @@ describe("ce-code-review contract", () => {
     expect(skill).toMatch(/Emit the report leaf's return verbatim/)
     expect(skill).toMatch(/never merge or render in the dispatch context/)
     // The peer's reap moves with the fold-in; dispatch stops touching the peer once the file is written.
-    expect(dispatch).toMatch(/record the result as `peer\.outcome`, `peer\.artifact`, and `peer\.coverage` in `finish-input\.json`/)
+    // Plan 2026-09-17-1201, U5: one `peers` entry per external job; the legacy `peer` object
+    // still carries the adversarial job's values.
+    expect(dispatch).toMatch(/record one `peers` entry per external job in `finish-input\.json`/)
+    expect(dispatch).toMatch(/`peer\.outcome`, `peer\.artifact`, and `peer\.coverage`/)
     // #1692 review round 3: every peer recovery branch needs a launch or a disclosure, so the peer is
     // terminal and classified in the dispatch context before any leaf starts.
     expect(dispatch).toMatch(/perform the reference's single bounded status\/wait\/reap sequence here, in the dispatch context/)
@@ -1993,4 +2001,99 @@ describe("cross-model fold-in read", () => {
       expect(content).not.toMatch(/artifact that does exist/i)
     },
   )
+})
+
+// Plan 2026-09-17-1201, U5: `cross_model_code_review_scope: all` sends every eligible selected
+// persona to the cross-model target. `default` must stay as before, so every scope-`all` rule
+// lives in one reference loaded only at that scope, and the shared references say where it applies.
+describe("ce-code-review all-reviewers cross-model scope", () => {
+  const allReference = "skills/ce-code-review/references/all-reviewers-external.md"
+
+  test("the cross-model reference resolves scope after the mode gate and routes `all` to its reference", async () => {
+    const ref = await readRepoFile("skills/ce-code-review/references/cross-model-review.md")
+    const gate = ref.indexOf("**Checkout policy on sending content out")
+    const scope = ref.indexOf("**Review scope.**")
+    const resolution = ref.indexOf("Resolve the preference in this order")
+    expect(gate).toBeGreaterThan(-1)
+    expect(scope).toBeGreaterThan(gate)
+    expect(scope).toBeLessThan(resolution)
+    expect(ref).toContain("`cross_model_code_review_scope:`")
+    expect(ref).toContain("`references/all-reviewers-external.md`")
+    // R7: a same-family target or no installed route runs at `default` and says why.
+    expect(ref).toMatch(/host's own family[\s\S]{0,200}`default`/)
+    // R6: remote scopes start nothing; lite and focused keep `default`.
+    expect(ref).toMatch(/lite and focused[\s\S]{0,120}`default`/i)
+    // The adversarial-only framing now holds at `default` only.
+    expect(ref).toMatch(/At scope `default`, this pass is \*\*adversarial-only\*\*/)
+  })
+
+  test("the scope reference splits eligibility by the worker allowlist and keeps adversarial local", async () => {
+    const ref = await readRepoFile(allReference)
+    expect(ref).toMatch(/worker's allowlist decides eligibility/i)
+    for (const persona of [
+      "learnings-researcher",
+      "agent-native-reviewer",
+      "deployment-verification-agent",
+      "previous-comments-reviewer",
+      "testing-reviewer",
+    ]) {
+      expect(ref).toMatch(new RegExp("`" + persona + "`[^\\n]*host"))
+    }
+    expect(ref).toMatch(/`adversarial-reviewer`[^\n]*host/)
+    // KTD11: per-persona inputs with the context each persona needs, same caps and trust split.
+    expect(ref).toContain("<persona>-review-constraints.md")
+    expect(ref).toContain("<persona>-review-brief.md")
+    expect(ref).toMatch(/32 KiB/)
+    for (const block of ["intent summary", "PR context", "standards paths", "review base"]) {
+      expect(ref).toContain(block)
+    }
+  })
+
+  test("the scope reference starts every job before the local wave and collects them under one deadline", async () => {
+    const ref = await readRepoFile(allReference)
+    // R8: one disclosure before any job.
+    expect(ref).toMatch(/one disclosure/i)
+    expect(ref).toMatch(/number of reviewers sent/)
+    expect(ref).toMatch(/leaves the machine/)
+    // KTD8: all at once, no cap, before the local wave.
+    expect(ref).toMatch(/before the local wave/)
+    expect(ref).toMatch(/no concurrency cap/)
+    expect(ref).toContain("peer-deadline-secs")
+    expect(ref).toContain("CROSS_MODEL_HARD_SECS")
+    // The existing single bounded status/wait/reap collection, over every job id.
+    expect(ref).toMatch(/single bounded status\/wait\/reap sequence/)
+    expect(ref).toMatch(/every job id/)
+    // R9 / R10.
+    expect(ref).toMatch(/in-process twin/)
+    expect(ref).toMatch(/quota[\s\S]{0,200}reap every job still running/i)
+    expect(ref).toMatch(/keep every result already collected/)
+    // KTD9: one `peers` entry per job with its provenance.
+    expect(ref).toMatch(/one `peers` entry per external job/)
+    for (const state of ["external-verified", "external-unverified", "host-fallback", "host-by-design"]) {
+      expect(ref).toContain(state)
+    }
+  })
+
+  test("routing, recovery, dispatch, and depth paths are scope-aware", async () => {
+    const select = await readRepoFile("skills/ce-code-review/references/select-and-route.md")
+    const stage3d = select.split("### Stage 3d")[1]
+    expect(stage3d).toContain("`references/all-reviewers-external.md`")
+    expect(stage3d).toMatch(/external set and the host set at once/)
+    const recovery = await readRepoFile("skills/ce-code-review/references/cross-model-recovery.md")
+    expect(recovery).toMatch(/in-process twin of that persona/)
+    const dispatch = await readRepoFile("skills/ce-code-review/references/dispatch-reviewers.md")
+    expect(dispatch).not.toMatch(/its return joins `raw-returns\.json`/)
+    expect(dispatch).toMatch(/never copy a peer artifact into `raw-returns\.json`/i)
+    const depth = await readRepoFile("skills/ce-code-review/references/depth-paths.md")
+    expect(depth).toMatch(/cross_model_code_review_scope[\s\S]{0,200}`default`/)
+  })
+
+  test("the report and cost record show every external job and each reviewer's provenance", async () => {
+    const template = await readRepoFile("skills/ce-code-review/references/review-output-template.md")
+    for (const state of ["external-verified", "external-unverified", "host-fallback", "host-by-design"]) {
+      expect(template).toContain(state)
+    }
+    const modes = await readRepoFile("skills/ce-code-review/references/modes-and-output.md")
+    expect(modes).toMatch(/`peers` \(one entry per external job/)
+  })
 })

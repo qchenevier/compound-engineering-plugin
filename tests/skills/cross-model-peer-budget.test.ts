@@ -30,6 +30,12 @@ const DISPATCH_REFS = {
   "ce-doc-review": "skills/ce-doc-review/references/cross-model-review.md",
 } as const
 
+// References that start or collect peer jobs without owning a start block. They inherit the
+// deadline from a dispatch reference, so they are held to the same waiting rules.
+const COLLECTING_REFS = {
+  "ce-code-review all reviewers": "skills/ce-code-review/references/all-reviewers-external.md",
+} as const
+
 const POV_REF = "skills/ce-pov/references/cross-model-panel.md"
 const RUNNER = "skills/ce-doc-review/scripts/peer-job-runner.py"
 
@@ -225,7 +231,7 @@ describe("cross-model peer budget", () => {
       /do not start repeated/i,
       /the documented single `wait`/,
     ]
-    for (const [skill, rel] of Object.entries(DISPATCH_REFS)) {
+    for (const [skill, rel] of Object.entries({ ...DISPATCH_REFS, ...COLLECTING_REFS })) {
       const doc = read(rel)
       for (const pattern of banned) {
         expect(doc, `${skill} must not cap total peer waiting (${pattern})`).not.toMatch(pattern)
@@ -239,6 +245,7 @@ describe("cross-model peer budget", () => {
   test("no skill hardcodes a peer deadline or backstop in prose", () => {
     const docs = [
       ...Object.values(DISPATCH_REFS),
+      ...Object.values(COLLECTING_REFS),
       POV_REF,
       "skills/ce-code-review/SKILL.md",
       "skills/ce-doc-review/references/cross-model-eval.md",
