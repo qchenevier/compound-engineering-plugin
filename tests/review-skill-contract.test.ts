@@ -721,9 +721,9 @@ describe("ce-code-review contract", () => {
     expect(content).toContain("### Stage 5b: Validation pass")
 
     // Cross-model corroboration is the only validator shortcut.
-    expect(content).toMatch(/ordinary reviewer plus an `adversarial-<provider>` reviewer/i)
+    expect(content).toMatch(/host-family reviewer and an external reviewer whose artifact records `independence_verified: true`/i)
     expect(content).toMatch(/Same-model corroboration never licenses this shortcut/i)
-    expect(content).toMatch(/in-process reviewers share one serving model, so their agreement is recorded in `reviewers` but never raises confidence/i)
+    expect(content).toMatch(/in-process reviewers share one serving model, and external reviewers on one provider share another, so agreement within either group is recorded in `reviewers` but never raises confidence/i)
     expect(content).toMatch(/incidence was not measured, the finding carries `validation_status: "confirmed"` and that reason as `validation_reason`/)
     expect(validatorTemplate).toMatch(/state in `reason` that incidence was not measured/)
 
@@ -1873,8 +1873,9 @@ describe("cross-model peer skip legibility", () => {
       "skills/ce-code-review/scripts/findings-mechanics.py",
     )
     expect(skill).toMatch(/`independence_verified:?\s*true`/)
-    expect(mechanics).toContain('source.get("independence_verified") is True')
-    expect(mechanics).toContain('name.startswith("adversarial-")')
+    expect(mechanics).toContain('artifact.get("independence_verified") is True')
+    expect(mechanics).toContain("--finish-input")
+    expect(mechanics).not.toContain('startswith("adversarial-")')
   })
 
   test("review-skill behavioral eval specs exercise the fixed-route U8 contract", async () => {

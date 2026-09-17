@@ -20,6 +20,7 @@ from pathlib import Path
 
 STAGES_FILE = "stages.jsonl"
 METADATA_FILE = "metadata.json"
+FINISH_INPUT_FILE = "finish-input.json"
 # Stages whose end marks the receipt being written; a run with one of these
 # ended and no dangling start is complete.
 RECEIPT_STAGES = {"report", "receipt"}
@@ -160,6 +161,50 @@ def peer_usage(run_dir: Path) -> dict[str, object] | None:
     return None
 
 
+def read_usage(path: Path) -> dict[str, object] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def recorded_peers(run_dir: Path) -> list[object] | None:
+    try:
+        data = json.loads((run_dir / FINISH_INPUT_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    peers = data.get("peers") if isinstance(data, dict) else None
+    return peers if isinstance(peers, list) else None
+
+
+def peers_cost(run_dir: Path) -> list[dict[str, object]]:
+    """One entry per external job: the host-written finish input names them;
+    without it, each `<persona>-<provider>-usage.json` stands for one job."""
+    entries: list[dict[str, object]] = []
+    recorded = recorded_peers(run_dir)
+    if recorded is not None:
+        for peer in recorded:
+            if not isinstance(peer, dict) or not isinstance(peer.get("persona"), str):
+                continue
+            entry: dict[str, object] = {
+                "persona": peer["persona"],
+                "provider": peer.get("target"),
+                "outcome": peer.get("outcome"),
+                "provenance": peer.get("provenance"),
+                "reason": peer.get("reason"),
+            }
+            usage = read_usage(run_dir / f"{peer['persona']}-{peer.get('target')}-usage.json")
+            entries.append({**entry, **(usage or {})})
+        return entries
+    for path in sorted(run_dir.glob("*-usage.json")):
+        persona, sep, provider = path.name[: -len("-usage.json")].rpartition("-")
+        usage = read_usage(path)
+        if sep and persona and usage is not None:
+            entries.append({"persona": persona, "provider": provider, **usage})
+    return entries
+
+
 def build_cost(run_dir: Path) -> dict[str, object]:
     events, truncated = read_events(run_dir)
     stages: list[dict[str, object]] = []
@@ -218,6 +263,9 @@ def build_cost(run_dir: Path) -> dict[str, object]:
     peer = peer_usage(run_dir)
     if peer is not None:
         cost["peer"] = peer
+    peers = peers_cost(run_dir)
+    if peers:
+        cost["peers"] = peers
     return cost
 
 

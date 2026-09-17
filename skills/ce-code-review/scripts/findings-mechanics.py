@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 
@@ -72,23 +74,100 @@ def fingerprint(finding: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
-def independent_reviewer(name: str, source: dict[str, Any]) -> bool:
-    if name == "fast-pass":
-        return False
-    if cross_model_peer(name):
-        return source.get("independence_verified") is True
-    return True
+HOST_FAMILY = "host"
+HOST_ENTRY = {"family": HOST_FAMILY, "external": False, "independence_verified": False}
 
 
-def cross_model_peer(name: str) -> bool:
-    return name.startswith("adversarial-")
+class FinishInputError(Exception):
+    pass
+
+
+def peer_artifact_paths(finish_input: Path) -> list[Path]:
+    # Only the dispatch context writes finish-input.json, so a reviewer is
+    # external only when an entry here names its artifact (KTD6).
+    try:
+        data = json.loads(finish_input.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise FinishInputError(f"unreadable finish input: {error}") from error
+    if not isinstance(data, dict):
+        raise FinishInputError("finish input is not an object")
+    entries: list[Any] = []
+    if isinstance(data.get("peers"), list):
+        entries.extend(data["peers"])
+    if isinstance(data.get("peer"), dict):
+        entries.append(data["peer"])
+    paths: list[Path] = []
+    for entry in entries:
+        artifact = entry.get("artifact") if isinstance(entry, dict) else None
+        if not nonempty_string(artifact):
+            continue
+        path = Path(artifact)
+        if not path.is_absolute():
+            path = finish_input.parent / path
+        if path not in paths:
+            paths.append(path)
+    return paths
+
+
+def load_peer_artifacts(finish_input: Path) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    for path in peer_artifact_paths(finish_input):
+        try:
+            artifact = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise FinishInputError(f"listed peer artifact is unreadable: {path}: {error}") from error
+        if not valid_return(artifact):
+            raise FinishInputError(f"listed peer artifact is not a reviewer return: {path}")
+        if any(existing["reviewer"] == artifact["reviewer"] for existing in artifacts):
+            continue
+        artifacts.append(artifact)
+    return artifacts
+
+
+def peer_family_entry(artifact: dict[str, Any]) -> dict[str, Any]:
+    family = artifact.get("serving_family")
+    return {
+        "family": family if nonempty_string(family) else "unknown",
+        "external": True,
+        "independence_verified": artifact.get("independence_verified") is True,
+    }
+
+
+def family_entry(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or value.get("external") is not True:
+        return dict(HOST_ENTRY)
+    family = value.get("family")
+    return {
+        "family": family if nonempty_string(family) and family != HOST_FAMILY else "unknown",
+        "external": True,
+        "independence_verified": value.get("independence_verified") is True,
+    }
+
+
+def counts_as_independent(entry: dict[str, Any]) -> bool:
+    return not entry["external"] or entry["independence_verified"]
+
+
+def corroborated(independent: set[str], families: dict[str, dict[str, Any]]) -> bool:
+    # In-process reviewers are one family, and external reviewers of one family
+    # are one reading; only a verified external family plus the host family is
+    # cross-family agreement (R11).
+    entries = [families.get(name, HOST_ENTRY) for name in independent]
+    has_host = any(not entry["external"] for entry in entries)
+    has_verified_external = any(
+        entry["external"] and entry["independence_verified"] for entry in entries
+    )
+    return has_host and has_verified_external
 
 
 def promote(confidence: int) -> int:
     return {50: 75, 75: 100, 100: 100}.get(confidence, confidence)
 
 
-def merge_group(group: list[tuple[dict[str, Any], str, tuple[str, ...]]]) -> dict[str, Any]:
+GroupItem = tuple[dict[str, Any], str, tuple[str, ...], dict[str, dict[str, Any]]]
+
+
+def merge_group(group: list[GroupItem]) -> dict[str, Any]:
     # Start with the most urgent/high-confidence representation, then merge conservatively.
     group.sort(key=lambda item: (SEVERITIES.index(item[0]["severity"]), -item[0]["confidence"]))
     merged = dict(group[0][0])
@@ -97,13 +176,17 @@ def merge_group(group: list[tuple[dict[str, Any], str, tuple[str, ...]]]) -> dic
     merged["pre_existing"] = all(item[0]["pre_existing"] for item in group)
     reviewer_names: list[str] = []
     independent: set[str] = set()
-    for finding, reviewer, independent_names in group:
+    families: dict[str, dict[str, Any]] = {}
+    for finding, reviewer, independent_names, finding_families in group:
         supplied = finding.get("reviewers")
         names = supplied if isinstance(supplied, list) else [reviewer]
         for name in names:
             if isinstance(name, str) and name not in reviewer_names:
                 reviewer_names.append(name)
         independent.update(independent_names)
+        for name, entry in finding_families.items():
+            if name not in families or entry["external"]:
+                families[name] = entry
 
         if AUTOFIX_CLASSES.index(finding["autofix_class"]) > AUTOFIX_CLASSES.index(merged["autofix_class"]):
             merged["autofix_class"] = finding["autofix_class"]
@@ -125,19 +208,23 @@ def merge_group(group: list[tuple[dict[str, Any], str, tuple[str, ...]]]) -> dic
     has_first_evidence = nonempty_string(merged.get("first_evidence"))
     if confidence >= 75 and not has_first_evidence:
         confidence = 50
-    # In-process reviewers share one serving model, so their agreement is one
-    # reading repeated; only a verified cross-model peer corroborates.
-    if len(independent) >= 2 and has_first_evidence and any(cross_model_peer(n) for n in independent):
+    if has_first_evidence and corroborated(independent, families):
         confidence = promote(confidence)
     merged["confidence"] = confidence
     merged["reviewers"] = reviewer_names
     merged["independent_reviewers"] = [
         reviewer for reviewer in reviewer_names if reviewer in independent
     ]
+    merged["reviewer_families"] = {
+        name: families.get(name, dict(HOST_ENTRY)) for name in reviewer_names
+    }
     return merged
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--finish-input", help="finish-input.json naming the external peer artifacts to fold")
+    args = parser.parse_args()
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, OSError) as error:
@@ -148,12 +235,25 @@ def main() -> int:
         print(json.dumps({"status": "failed", "reason": "expected an array of reviewer returns"}))
         return 2
 
+    peer_families: dict[str, dict[str, Any]] = {}
+    if args.finish_input:
+        try:
+            artifacts = load_peer_artifacts(Path(args.finish_input))
+        except FinishInputError as error:
+            print(json.dumps({"status": "failed", "reason": str(error)}))
+            return 2
+        peer_families = {artifact["reviewer"]: peer_family_entry(artifact) for artifact in artifacts}
+        # A return that reuses a peer's name is not the peer; the artifact is.
+        payload = [
+            source
+            for source in payload
+            if not (isinstance(source, dict) and source.get("reviewer") in peer_families)
+        ] + artifacts
+
     malformed_returns = 0
     malformed_findings = 0
     first_evidence_backfilled = 0
-    grouped: dict[
-        tuple[str, str, str], list[tuple[dict[str, Any], str, tuple[str, ...]]]
-    ] = {}
+    grouped: dict[tuple[str, str, str], list[GroupItem]] = {}
     residual_risks: list[Any] = []
     testing_gaps: list[Any] = []
 
@@ -186,6 +286,7 @@ def main() -> int:
             if reviewer == "fast-pass":
                 finding["confidence"] = min(finding["confidence"], 50)
             independent_names: tuple[str, ...]
+            finding_families: dict[str, dict[str, Any]]
             if reviewer == "synthesis":
                 supplied_reviewers = finding.get("reviewers")
                 supplied_independent = finding.get("independent_reviewers")
@@ -197,17 +298,30 @@ def main() -> int:
                 independent_list = (
                     supplied_independent if isinstance(supplied_independent, list) else []
                 )
+                supplied_families = finding.pop("reviewer_families", None)
+                if not isinstance(supplied_families, dict):
+                    supplied_families = {}
+                finding_families = {
+                    name: family_entry(supplied_families.get(name)) for name in reviewer_set
+                }
                 independent_names = tuple(
                     name
                     for name in independent_list
-                    if isinstance(name, str) and name in reviewer_set
+                    if isinstance(name, str)
+                    and name in reviewer_set
+                    and name != "fast-pass"
+                    and counts_as_independent(finding_families[name])
                 )
-            elif independent_reviewer(reviewer, source):
-                independent_names = (reviewer,)
             else:
-                independent_names = ()
+                entry = peer_families.get(reviewer, dict(HOST_ENTRY))
+                finding_families = {reviewer: entry}
+                independent_names = (
+                    (reviewer,)
+                    if reviewer != "fast-pass" and counts_as_independent(entry)
+                    else ()
+                )
             grouped.setdefault(fingerprint(finding), []).append(
-                (finding, reviewer, independent_names)
+                (finding, reviewer, independent_names, finding_families)
             )
 
     merged = [merge_group(group) for group in grouped.values()]

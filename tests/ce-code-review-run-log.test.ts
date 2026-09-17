@@ -137,6 +137,51 @@ describe("ce-code-review run-log", () => {
     expect(cost.stages.find((s: { stage: string }) => s.stage === "report").tokens).toBeUndefined()
   })
 
+  // Plan 2026-09-17-1201, U4 (KTD9): one cost entry per external job, keyed by the
+  // host-written peers list rather than by file-name guessing.
+  test("the cost block lists one peers entry per external job", () => {
+    const dir = freshRunDir()
+    const personas = ["correctness", "security", "testing"]
+    writeFileSync(path.join(dir, "finish-input.json"), JSON.stringify({
+      peer: { selected: false, target: null, outcome: null, artifact: null },
+      peers: personas.map((persona, index) => ({
+        persona,
+        target: "codex",
+        outcome: index === 2 ? "failed" : "folded",
+        artifact: index === 2 ? null : path.join(dir, `${persona}-codex.json`),
+        provenance: index === 2 ? "host-fallback" : "external-verified",
+        reason: index === 2 ? "deadline passed" : null,
+      })),
+    }))
+    writeFileSync(path.join(dir, "correctness-codex-usage.json"), JSON.stringify({ input_tokens: 10, output_tokens: 2 }))
+    writeFileSync(path.join(dir, "security-codex-usage.json"), JSON.stringify({ input_tokens: 30, output_tokens: 4 }))
+    runLog(dir, "event", "--start", "receipt")
+    runLog(dir, "event", "--end", "receipt")
+    runLog(dir, "summarize")
+    const cost = metadata(dir).cost
+    expect(cost.peers).toEqual([
+      { persona: "correctness", provider: "codex", outcome: "folded", provenance: "external-verified", reason: null, input_tokens: 10, output_tokens: 2 },
+      { persona: "security", provider: "codex", outcome: "folded", provenance: "external-verified", reason: null, input_tokens: 30, output_tokens: 4 },
+      { persona: "testing", provider: "codex", outcome: "failed", provenance: "host-fallback", reason: "deadline passed" },
+    ])
+    expect(cost.peer).toBeUndefined()
+  })
+
+  test("without a finish input the cost block still lists each usage file", () => {
+    const dir = freshRunDir()
+    writeFileSync(path.join(dir, "adversarial-codex-usage.json"), JSON.stringify({ input_tokens: 5 }))
+    writeFileSync(path.join(dir, "correctness-codex-usage.json"), JSON.stringify({ input_tokens: 7 }))
+    runLog(dir, "event", "--start", "receipt")
+    runLog(dir, "event", "--end", "receipt")
+    runLog(dir, "summarize")
+    const cost = metadata(dir).cost
+    expect(cost.peer).toMatchObject({ provider: "codex", input_tokens: 5 })
+    expect(cost.peers).toEqual([
+      { persona: "adversarial", provider: "codex", input_tokens: 5 },
+      { persona: "correctness", provider: "codex", input_tokens: 7 },
+    ])
+  })
+
   test("an explicit zero token count stays in the totals", () => {
     const dir = freshRunDir()
     runLog(dir, "event", "--start", "peer")

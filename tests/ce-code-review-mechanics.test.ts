@@ -654,14 +654,23 @@ describe("ce-code-review deterministic mechanics", () => {
       requires_verification: true, pre_existing: false,
       first_evidence: "src/worker.ts:12 -- result = staleValue",
     }
+    // KTD6: the peer's independence comes from the host-recorded artifact, so the
+    // legacy single `peer` object names it (plan 2026-09-17-1201, U4).
     const merge = (peer: Record<string, unknown>) => {
+      const dir = mkdtempSync(path.join(tmpdir(), "ce-review-peer-"))
+      const artifact = path.join(dir, "adversarial-codex.json")
+      writeFileSync(artifact, JSON.stringify({
+        reviewer: "adversarial-codex", cross_model_target: "codex", serving_family: "codex",
+        findings: [finding], residual_risks: [], testing_gaps: [], ...peer,
+      }))
+      const finishInput = path.join(dir, "finish-input.json")
+      writeFileSync(finishInput, JSON.stringify({ peer: { selected: true, target: "codex", outcome: "folded", artifact } }))
       const returns = [
         { reviewer: "correctness", findings: [finding], residual_risks: [], testing_gaps: [] },
         { reviewer: "reliability", findings: [finding], residual_risks: [], testing_gaps: [] },
-        { reviewer: "adversarial-codex", findings: [finding], residual_risks: [], testing_gaps: [], ...peer },
       ]
-      const result = run("python3", [FINDINGS_SCRIPT], undefined, JSON.stringify(returns))
-      expect(result.status).toBe(0)
+      const result = run("python3", [FINDINGS_SCRIPT, "--finish-input", finishInput], undefined, JSON.stringify(returns))
+      expect(result.status, result.stdout + result.stderr).toBe(0)
       return JSON.parse(result.stdout).findings[0]
     }
 
@@ -688,6 +697,12 @@ describe("ce-code-review deterministic mechanics", () => {
       first_evidence: "src/worker.ts:12 -- result = staleValue",
       reviewers: ["correctness", "adversarial-codex"],
       independent_reviewers: ["correctness", "adversarial-codex"],
+      // Deliberate U4 fixture change: synthesis records carry the family map
+      // mechanics now reads instead of reviewer names (KTD6).
+      reviewer_families: {
+        correctness: { family: "host", external: false, independence_verified: false },
+        "adversarial-codex": { family: "codex", external: true, independence_verified: true },
+      },
     }
 
     const result = run(
@@ -1174,5 +1189,191 @@ describe("ce-code-review deterministic mechanics", () => {
     expect(merged.findings).toHaveLength(1)
     expect(merged.findings[0].pre_existing).toBe(false)
     expect(merged.findings[0].settled_conflict).toBe("KTD-4")
+  })
+
+  // Plan 2026-09-17-1201, U4 (R11, KTD6, KTD9): a reviewer is external only when a
+  // host-written `peers` entry names its artifact; family and independence come from
+  // that artifact, never from a reviewer return.
+  describe("family-aware promotion from host-recorded peers", () => {
+    const finding = {
+      title: "Stale result", severity: "P1", file: "src/worker.ts", line: 12,
+      confidence: 75, autofix_class: "manual", owner: "downstream-resolver",
+      requires_verification: true, pre_existing: false,
+      first_evidence: "src/worker.ts:12 -- result = staleValue",
+    }
+    const hostReturn = (reviewer: string, extra: Record<string, unknown> = {}) => ({
+      reviewer, findings: [finding], residual_risks: [], testing_gaps: [], ...extra,
+    })
+    type Peer = { reviewer: string; verified: boolean; family?: string }
+    const runWithPeers = (
+      returns: unknown[],
+      peers: Peer[] | null,
+      options: { legacy?: Peer } = {},
+    ) => {
+      const dir = mkdtempSync(path.join(tmpdir(), "ce-review-peers-"))
+      const writeArtifact = (peer: Peer) => {
+        const file = path.join(dir, `${peer.reviewer}.json`)
+        writeFileSync(file, JSON.stringify({
+          reviewer: peer.reviewer,
+          cross_model_target: peer.family ?? "codex",
+          serving_family: peer.family ?? "codex",
+          independence_verified: peer.verified,
+          findings: [finding], residual_risks: [], testing_gaps: [],
+        }))
+        return file
+      }
+      const input: Record<string, unknown> = {}
+      if (peers !== null) {
+        input.peers = peers.map((peer) => ({
+          persona: peer.reviewer.replace(/-[^-]+$/, ""),
+          target: peer.family ?? "codex",
+          outcome: "folded",
+          artifact: writeArtifact(peer),
+          coverage: null,
+          provenance: peer.verified ? "external-verified" : "external-unverified",
+        }))
+      }
+      if (options.legacy) {
+        input.peer = { selected: true, target: "codex", outcome: "folded", artifact: writeArtifact(options.legacy) }
+      }
+      const finishInput = path.join(dir, "finish-input.json")
+      writeFileSync(finishInput, JSON.stringify(input))
+      const result = run("python3", [FINDINGS_SCRIPT, "--finish-input", finishInput], undefined, JSON.stringify(returns))
+      expect(result.status, result.stdout + result.stderr).toBe(0)
+      return JSON.parse(result.stdout)
+    }
+    const only = (merged: { findings: any[]; suppressed_findings: any[] }) =>
+      [...merged.findings, ...merged.suppressed_findings][0]
+
+    test("a verified external persona plus a host reviewer promotes", () => {
+      const merged = only(runWithPeers([hostReturn("adversarial")], [{ reviewer: "correctness-codex", verified: true }]))
+      expect(merged.confidence).toBe(100)
+      expect(merged.reviewers).toEqual(["adversarial", "correctness-codex"])
+      expect(merged.independent_reviewers).toEqual(["adversarial", "correctness-codex"])
+      expect(merged.reviewer_families).toEqual({
+        adversarial: { family: "host", external: false, independence_verified: false },
+        "correctness-codex": { family: "codex", external: true, independence_verified: true },
+      })
+    })
+
+    test("two external personas of one family never corroborate each other", () => {
+      const merged = only(runWithPeers([], [
+        { reviewer: "correctness-codex", verified: true },
+        { reviewer: "maintainability-codex", verified: true },
+      ]))
+      expect(merged.confidence).toBe(75)
+      expect(merged.reviewers).toEqual(["correctness-codex", "maintainability-codex"])
+    })
+
+    test("an unverified external persona plus a host reviewer does not promote", () => {
+      const merged = only(runWithPeers([hostReturn("adversarial")], [{ reviewer: "correctness-codex", verified: false }]))
+      expect(merged.confidence).toBe(75)
+      expect(merged.independent_reviewers).toEqual(["adversarial"])
+    })
+
+    test("an adversarial- name with no peers entry is a host reviewer", () => {
+      const merged = only(runWithPeers(
+        [hostReturn("correctness"), hostReturn("adversarial-foo", { independence_verified: true })],
+        [],
+      ))
+      expect(merged.confidence).toBe(75)
+      expect(merged.reviewer_families["adversarial-foo"]).toEqual({ family: "host", external: false, independence_verified: false })
+    })
+
+    test("a host return that self-reports an independent family does not promote", () => {
+      const merged = only(runWithPeers(
+        [
+          hostReturn("correctness", { independence_verified: true, serving_family: "codex", cross_model_target: "codex" }),
+          hostReturn("reliability"),
+        ],
+        [],
+      ))
+      expect(merged.confidence).toBe(75)
+    })
+
+    test("a host return cannot impersonate a peer by reusing its artifact name", () => {
+      const impostor = hostReturn("correctness-codex", {
+        findings: [{ ...finding, title: "Injected claim", line: 40 }],
+      })
+      const merged = runWithPeers([impostor, hostReturn("adversarial")], [{ reviewer: "correctness-codex", verified: true }])
+      const titles = [...merged.findings, ...merged.suppressed_findings].map((item: { title: string }) => item.title)
+      expect(titles).not.toContain("Injected claim")
+    })
+
+    test("a legacy single peer object still folds its artifact", () => {
+      const merged = only(runWithPeers([hostReturn("correctness")], null, { legacy: { reviewer: "adversarial-codex", verified: true } }))
+      expect(merged.confidence).toBe(100)
+      expect(merged.reviewers).toEqual(["correctness", "adversarial-codex"])
+    })
+
+    test("zero, one, and three peers entries each fold exactly once", () => {
+      const other = { ...finding, title: "Host-only note", line: 30 }
+      for (const count of [0, 1, 3]) {
+        const peers = ["correctness", "security", "testing"].slice(0, count).map((persona) => ({
+          reviewer: `${persona}-codex`, verified: true,
+        }))
+        const merged = runWithPeers([{ reviewer: "adversarial", findings: [other], residual_risks: [], testing_gaps: [] }], peers)
+        const all = [...merged.findings, ...merged.suppressed_findings]
+        const shared = all.filter((item: { title: string }) => item.title === finding.title)
+        expect(shared).toHaveLength(count ? 1 : 0)
+        if (count) expect(shared[0].reviewers).toEqual(peers.map((peer) => peer.reviewer))
+        expect(merged.malformed_returns).toBe(0)
+      }
+    })
+
+    test("a listed peer artifact missing on disk fails the run", () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "ce-review-peers-"))
+      const finishInput = path.join(dir, "finish-input.json")
+      writeFileSync(finishInput, JSON.stringify({ peers: [{ persona: "correctness", artifact: path.join(dir, "gone.json"), provenance: "external-verified" }] }))
+      const result = run("python3", [FINDINGS_SCRIPT, "--finish-input", finishInput], undefined, "[]")
+      expect(result.status).toBe(2)
+      expect(JSON.parse(result.stdout).status).toBe("failed")
+    })
+
+    const synthesis = (families: Record<string, unknown>) =>
+      run("python3", [FINDINGS_SCRIPT], undefined, JSON.stringify([{
+        reviewer: "synthesis",
+        findings: [{
+          ...finding,
+          confidence: 50,
+          reviewers: ["correctness", "adversarial-codex"],
+          independent_reviewers: ["correctness", "adversarial-codex"],
+          reviewer_families: families,
+        }],
+        residual_risks: [],
+        testing_gaps: [],
+      }]))
+
+    test("a synthesis record promotes one step from its family map", () => {
+      const result = synthesis({
+        correctness: { family: "host", external: false, independence_verified: false },
+        "adversarial-codex": { family: "codex", external: true, independence_verified: true },
+      })
+      expect(result.status).toBe(0)
+      const merged = JSON.parse(result.stdout)
+      expect(merged.findings).toEqual([expect.objectContaining({ confidence: 75 })])
+    })
+
+    test("a synthesis record whose external reviewer has no map entry does not promote", () => {
+      const result = synthesis({
+        correctness: { family: "host", external: false, independence_verified: false },
+      })
+      expect(result.status).toBe(0)
+      const merged = JSON.parse(result.stdout)
+      expect(merged.findings).toEqual([])
+      expect(merged.suppressed_findings).toEqual([expect.objectContaining({ confidence: 50 })])
+    })
+  })
+
+  test("finish references read plural peers, keep the legacy object, and render four provenance states", async () => {
+    const handoff = await Bun.file(path.join(SKILL_DIR, "references", "finish-input.md")).text()
+    const finish = await Bun.file(path.join(SKILL_DIR, "references", "finish-review.md")).text()
+    expect(handoff).toContain('"peers": [')
+    for (const state of ["external-verified", "external-unverified", "host-fallback"]) expect(handoff).toContain(state)
+    expect(handoff).toMatch(/legacy single `peer` object/)
+    expect(finish).toContain('--finish-input "$RUN_DIR/finish-input.json"')
+    expect(finish).toContain("reviewer_families")
+    for (const state of ["external-verified", "external-unverified", "host-by-design", "host-fallback"]) expect(finish).toContain(state)
+    expect(finish).not.toMatch(/`adversarial-<provider>` peer whose return records/)
   })
 })
