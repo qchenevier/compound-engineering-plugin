@@ -34,8 +34,9 @@
 #                   host, applies the CROSS_MODEL_PEERS allowlist, and walks this
 #                   order picking the first available provider(s) up to
 #                   CROSS_MODEL_MAX_PEERS.
-#   <reviewer-name> one of the three trio lenses: security-lens | adversarial |
-#                   product-lens. The SHORT name the in-process persona emits; it
+#   <reviewer-name> security-lens | adversarial | product-lens | whole-doc |
+#                   coherence | design-lens | scope-guardian. The SHORT name the
+#                   in-process persona emits; it
 #                   forces the fold-in reviewer field to <reviewer-name>-<provider>
 #                   so cross-persona agreement in synthesis matches the in-process
 #                   twin. The persona-brief filename is DERIVED from it (not a
@@ -46,6 +47,20 @@
 #   <origin>        the Origin context slot (a path, product_contract_source:<v>,
 #                   or the literal token none)
 #   <run-dir>       an existing dir; output -> <run-dir>/<reviewer-name>-<provider>.json
+#
+# Optional environment (unset keeps the positional behavior above unchanged):
+#   CROSS_MODEL_REVIEW_SCOPE=default|all
+#                   `default` (or unset): the conditional trio plus whole-doc, with
+#                   every peer safe_auto finding downgraded to gated_auto. `all`:
+#                   the persona runs as its in-process twin's external stand-in, so
+#                   safe_auto is kept, and adversarial / whole-doc are refused
+#                   because they stay on the host at that scope. feasibility is
+#                   always refused: it needs repository reads, and peers run tool-less.
+#   CROSS_MODEL_DECISION_PRIMER=<path>
+#                   the round's rendered <prior-decisions> block
+#                   (references/decision-primer.md), used in place of the round-1
+#                   primer. It must resolve to a regular, non-symlink file inside
+#                   <run-dir>; otherwise the script skips before any provider call.
 #
 # Test/introspection mode (no model call, no side effects):
 #   cross-model-doc-review.sh --emit-adapter <route>
@@ -388,13 +403,47 @@ esac
 
 # --- derive persona-brief filename from the allowlisted reviewer-name -------
 # Never a caller argument -> no path-traversal / arbitrary-file-read surface.
-case "$REVIEWER_NAME" in
-  security-lens) PERSONA_FILE="security-lens-reviewer" ;;
-  adversarial)   PERSONA_FILE="adversarial-document-reviewer" ;;
-  product-lens)  PERSONA_FILE="product-lens-reviewer" ;;
-  whole-doc)     PERSONA_FILE="whole-doc-reviewer" ;;   # broad whole-document sweep (R20/U9); embeds the full doc, no in-process twin
-  *) skip "reviewer-name '$REVIEWER_NAME' is not a cross-model reviewer (want security-lens|adversarial|product-lens|whole-doc); skipping" ;;
+REVIEW_SCOPE="${CROSS_MODEL_REVIEW_SCOPE:-default}"
+case "$REVIEW_SCOPE" in
+  default|all) ;;
+  *) skip "CROSS_MODEL_REVIEW_SCOPE '$REVIEW_SCOPE' invalid (want default|all); skipping" ;;
 esac
+case "$REVIEWER_NAME" in
+  security-lens)  PERSONA_FILE="security-lens-reviewer" ;;
+  adversarial)    PERSONA_FILE="adversarial-document-reviewer" ;;
+  product-lens)   PERSONA_FILE="product-lens-reviewer" ;;
+  whole-doc)      PERSONA_FILE="whole-doc-reviewer" ;;   # broad whole-document sweep (R20/U9); embeds the full doc, no in-process twin
+  coherence)      PERSONA_FILE="coherence-reviewer" ;;
+  design-lens)    PERSONA_FILE="design-lens-reviewer" ;;
+  scope-guardian) PERSONA_FILE="scope-guardian-reviewer" ;;
+  feasibility) skip "reviewer-name 'feasibility' needs repository reads and cannot run on a tool-less peer; skipping" ;;
+  *) skip "reviewer-name '$REVIEWER_NAME' is not a cross-model reviewer (want security-lens|adversarial|product-lens|whole-doc|coherence|design-lens|scope-guardian); skipping" ;;
+esac
+if [ "$REVIEW_SCOPE" = "all" ]; then
+  case "$REVIEWER_NAME" in
+    adversarial|whole-doc) skip "reviewer-name '$REVIEWER_NAME' runs on the host at scope all; skipping" ;;
+  esac
+fi
+
+# --- optional decision primer (round 2+) ------------------------------------
+# The primer is caller-supplied content that egresses with the prompt, so it may
+# only come from the run dir this invocation was given: canonicalize both, reject
+# symlinks and `..` components, and require a regular file.
+PRIMER_FILE=""
+if [ -n "${CROSS_MODEL_DECISION_PRIMER:-}" ]; then
+  _primer="$CROSS_MODEL_DECISION_PRIMER"
+  case "/$_primer/" in */../*) skip "decision primer path '$_primer' contains '..'; skipping" ;; esac
+  [ ! -L "$_primer" ] || skip "decision primer '$_primer' is a symlink; skipping"
+  [ -f "$_primer" ] || skip "decision primer '$_primer' is not a regular file; skipping"
+  _run_real="$(cd "$RUN_DIR" 2>/dev/null && pwd -P)" || skip "cannot canonicalize run-dir for the decision primer; skipping"
+  _primer_dir="$(cd "$(dirname "$_primer")" 2>/dev/null && pwd -P)" || skip "cannot canonicalize decision primer '$_primer'; skipping"
+  case "$_primer_dir/" in
+    "$_run_real"/*) ;;
+    *) skip "decision primer '$_primer' is outside the run dir; skipping" ;;
+  esac
+  PRIMER_FILE="$_primer_dir/$(basename "$_primer")"
+  [ -f "$PRIMER_FILE" ] && [ ! -L "$PRIMER_FILE" ] || skip "decision primer '$_primer' is not a regular file; skipping"
+fi
 
 # --- self-locate skill root + canonical sibling files ----------------------
 SKILL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || skip "cannot resolve skill root; skipping"
@@ -559,7 +608,12 @@ DOC_BASENAME="$(basename "$DOC_PATH")"
   printf 'Document type: %s\n' "$DOC_TYPE"
   printf 'Document path: %s\n' "$DOC_BASENAME"
   printf 'Origin: %s\n\n' "$ORIGIN"
-  printf '<prior-decisions>\nRound 1 — no prior decisions.\n</prior-decisions>\n\n'
+  if [ -n "$PRIMER_FILE" ]; then
+    cat "$PRIMER_FILE"
+    printf '\n\n'
+  else
+    printf '<prior-decisions>\nRound 1 — no prior decisions.\n</prior-decisions>\n\n'
+  fi
   printf 'Document content:\n'
   cat "$DOC_PATH"
   printf '\n</review-context>\n'
@@ -1163,7 +1217,9 @@ run_provider() {   # <provider>
   # forbids a peer from granting silent-apply authority, and enforcing it here (not
   # only in synthesis prose) means a peer cannot self-authorize a Phase 4 auto-apply
   # regardless of what it returns. gated_auto preserves the peer's proposed fix but
-  # routes it through user confirmation.
+  # routes it through user confirmation. At scope all the persona stands in for its
+  # in-process twin (R12), so its safe_auto is kept and synthesis routes it as the
+  # twin's would be.
   # Publish ONLY the normalized OUT into RUN_DIR. RAW_OUT lives in the per-peer
   # workspace and is never a fold-in artifact — if this script dies before normalize
   # (orphaned launch), synthesis finds no .json in RUN_DIR.
@@ -1182,6 +1238,7 @@ run_provider() {   # <provider>
          --arg family "$_target_family" --argjson independent "$_independent" \
          --arg mreq "$(route_model "$ACTUAL_ROUTE")" --arg mact "$MODEL_ACTUAL" \
          --arg ereq "$(route_effort "$ACTUAL_ROUTE")" \
+         --argjson keep_safe_auto "$([ "$REVIEW_SCOPE" = "all" ] && echo true || echo false)" \
          'if (.findings|type)=="array"
           then { reviewer: $r,
                  cross_model_route: $route,
@@ -1192,7 +1249,7 @@ run_provider() {   # <provider>
                  model_requested: $mreq,
                  model_actual: $mact,
                  effort_requested: $ereq,
-                 findings: [ .findings[] | if (.autofix_class? == "safe_auto") then .autofix_class = "gated_auto" else . end ],
+                 findings: [ .findings[] | if ((.autofix_class? == "safe_auto") and ($keep_safe_auto | not)) then .autofix_class = "gated_auto" else . end ],
                  residual_risks: (.residual_risks // []),
                  deferred_questions: (.deferred_questions // []) }
           else empty end' \

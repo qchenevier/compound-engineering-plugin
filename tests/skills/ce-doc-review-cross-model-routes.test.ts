@@ -1559,3 +1559,119 @@ describe("cross-model-doc-review argv integrity (multiline --json-schema)", () =
     expect(readFileSync(capFile, "utf8")).toContain("UNIQUE_DOC_MARKER_9x7")
   })
 })
+
+describe("cross-model-doc-review all-reviewers scope (R5, R12, KTD4, KTD7, KTD12)", () => {
+  // The stub records its stdin (the composed prompt) and that it was called, so a
+  // test can prove both what the peer saw and that a refused run never egressed.
+  const recordingStub = (reviewer: string, autofix = "safe_auto") =>
+    `#!/bin/sh\ncat > "$PROMPT_CAPTURE"\nprintf '%s' '{"structured_output":{"reviewer":"${reviewer}","findings":[{"section":"X","title":"t","autofix_class":"${autofix}","confidence":100}]}}'\n`
+
+  function runLens(
+    reviewer: string,
+    extraEnv: Record<string, string> = {},
+    runDir = makeRunDir(),
+  ) {
+    const capFile = path.join(mkTempRoot("xmodel-cap-"), "prompt.txt")
+    const { env } = sandbox(["claude"], recordingStub(reviewer))
+    const doc = makeDoc("# Plan\nUNIQUE_DOC_MARKER_all\n")
+    const r = run(["codex", "claude", reviewer, doc, "plan", "none", runDir], runDir, {
+      ...env,
+      PROMPT_CAPTURE: capFile,
+      ...extraEnv,
+    })
+    const prompt = existsSync(capFile) ? readFileSync(capFile, "utf8") : null
+    return { ...r, runDir, prompt }
+  }
+
+  function readOut(runDir: string, name: string) {
+    return JSON.parse(readFileSync(path.join(runDir, name), "utf8"))
+  }
+
+  for (const lens of ["coherence", "design-lens", "scope-guardian"]) {
+    test(`${lens} at all writes ${lens}-claude.json from its own persona brief`, () => {
+      const r = runLens(lens, { CROSS_MODEL_REVIEW_SCOPE: "all" })
+      expect(r.code).toBe(0)
+      expect(r.files).toContain(`${lens}-claude.json`)
+      expect(readOut(r.runDir, `${lens}-claude.json`).reviewer).toBe(`${lens}-claude`)
+      const brief = readFileSync(
+        path.join(__dirname, `../../skills/ce-doc-review/references/personas/${lens}-reviewer.md`),
+        "utf8",
+      )
+      expect(r.prompt?.startsWith(brief)).toBe(true)
+    })
+  }
+
+  test("feasibility is refused with a named skip reason and no provider call", () => {
+    const r = runLens("feasibility", { CROSS_MODEL_REVIEW_SCOPE: "all" })
+    expect(r.code).toBe(0)
+    expect(r.files).toEqual([])
+    expect(r.prompt).toBeNull()
+    expect(r.stderr).toMatch(/feasibility.*repository reads/)
+  })
+
+  test("a peer safe_auto finding stays safe_auto at all and becomes gated_auto without the flag", () => {
+    const atAll = runLens("coherence", { CROSS_MODEL_REVIEW_SCOPE: "all" })
+    expect(readOut(atAll.runDir, "coherence-claude.json").findings[0].autofix_class).toBe("safe_auto")
+    const atDefault = runLens("coherence")
+    expect(readOut(atDefault.runDir, "coherence-claude.json").findings[0].autofix_class).toBe("gated_auto")
+    const explicitDefault = runLens("security-lens", { CROSS_MODEL_REVIEW_SCOPE: "default" })
+    expect(readOut(explicitDefault.runDir, "security-lens-claude.json").findings[0].autofix_class).toBe("gated_auto")
+  })
+
+  test("an invalid scope value stops before provider egress", () => {
+    const r = runLens("coherence", { CROSS_MODEL_REVIEW_SCOPE: "everything" })
+    expect(r.files).toEqual([])
+    expect(r.prompt).toBeNull()
+    expect(r.stderr).toMatch(/CROSS_MODEL_REVIEW_SCOPE/)
+  })
+
+  test("at all, the lenses that stay on the host are refused before egress (KTD5)", () => {
+    for (const lens of ["adversarial", "whole-doc"]) {
+      const r = runLens(lens, { CROSS_MODEL_REVIEW_SCOPE: "all" })
+      expect(r.files).toEqual([])
+      expect(r.prompt).toBeNull()
+      expect(r.stderr).toMatch(/runs on the host at scope all/)
+    }
+  })
+
+  test("a supplied round-2 primer replaces the round-1 primer; without it round 1 is used", () => {
+    const runDir = makeRunDir()
+    const primer = path.join(runDir, "decision-primer.md")
+    writeFileSync(primer, "<prior-decisions>\nRound 1 — rejected (1 entries):\n- S: \"PRIMER_MARKER_r2\" — Skipped because no\n</prior-decisions>\n")
+    const withPrimer = runLens("coherence", { CROSS_MODEL_REVIEW_SCOPE: "all", CROSS_MODEL_DECISION_PRIMER: primer }, runDir)
+    expect(withPrimer.files).toContain("coherence-claude.json")
+    expect(withPrimer.prompt).toContain("PRIMER_MARKER_r2")
+    expect(withPrimer.prompt).not.toContain("Round 1 — no prior decisions.")
+    expect(withPrimer.prompt).toContain("UNIQUE_DOC_MARKER_all")
+    const withoutPrimer = runLens("coherence", { CROSS_MODEL_REVIEW_SCOPE: "all" })
+    expect(withoutPrimer.prompt).toContain("<prior-decisions>\nRound 1 — no prior decisions.\n</prior-decisions>")
+  })
+
+  test("a primer outside the run dir, a symlink, a .. path, or a non-file is refused with no provider call", () => {
+    const runDir = makeRunDir()
+    const outside = path.join(mkTempRoot("xmodel-outside-"), "primer.md")
+    writeFileSync(outside, "<prior-decisions>\nOUTSIDE\n</prior-decisions>\n")
+    const inside = path.join(runDir, "primer.md")
+    writeFileSync(inside, "<prior-decisions>\nINSIDE\n</prior-decisions>\n")
+    const link = path.join(runDir, "linked-primer.md")
+    symlinkSync(inside, link)
+    const linkedDir = path.join(runDir, "linked-dir")
+    symlinkSync(path.dirname(outside), linkedDir)
+    mkdirSync(path.join(runDir, "sub"))
+    const cases = [
+      outside,
+      link,
+      path.join(linkedDir, "primer.md"),
+      `${runDir}/sub/../primer.md`,
+      path.join(runDir, "sub"),
+      path.join(runDir, "missing.md"),
+    ]
+    for (const primer of cases) {
+      const r = runLens("coherence", { CROSS_MODEL_REVIEW_SCOPE: "all", CROSS_MODEL_DECISION_PRIMER: primer }, runDir)
+      expect(r.code).toBe(0)
+      expect(r.prompt).toBeNull()
+      expect(r.files.filter((f) => f.endsWith(".json"))).toEqual([])
+      expect(r.stderr).toMatch(/decision primer/)
+    }
+  })
+})
