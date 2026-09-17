@@ -6,6 +6,8 @@ Respect the harness's active-subagent limit: dispatch only as many selected revi
 
 **Agent lifecycle.** Collect each agent's final outcome, including failures, before cleanup. When the harness lets the caller close or release agents, close or release the agents this review started before refilling slots, advancing stages, or returning. Do not message completed agents with no remaining work. Do not assume capacity was freed just because an agent completed or was interrupted, and do not invent cleanup operations.
 
+**Cross-model scope comes first.** Resolve the cross-model pass in `references/cross-model-review.md` before this wave. When its scope resolves to `all`, start the external jobs first, then dispatch here only the reviewers `references/all-reviewers-external.md` keeps on the host. Dispatch an external reviewer's in-process fallback twin only after its job ends without a usable result, with the same slice and `{decision_primer}` it would have had here.
+
 For each selected reviewer, read `references/personas/<reviewer-name>.md` and pass its full content as `{persona_file}`. Do not dispatch standalone agents by type/name and do not rely on platform-level custom-agent registration.
 
 **Model tiering lives here, not in prompt assets.** Local prompt files have no frontmatter and carry no model metadata. Apply these dispatch-time preferences when the platform exposes a known model override; otherwise omit the override and inherit the parent model rather than guessing a platform-specific model name:

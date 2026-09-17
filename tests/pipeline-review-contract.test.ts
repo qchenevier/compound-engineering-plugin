@@ -1310,3 +1310,108 @@ describe("learnings-researcher local prompt domain-agnostic contract", () => {
     expect(integration).not.toContain("ce-doc-review")
   })
 })
+
+// Plan 2026-09-17-1201, U6: `cross_model_doc_review_scope: all` sends every eligible
+// activated lens to the cross-model target. `default` must stay exactly as before, so
+// every scope-`all` rule is conditional and the peer-only restrictions stay in force at
+// `default`.
+describe("ce-doc-review all-reviewers cross-model scope", () => {
+  const allReference = "skills/ce-doc-review/references/all-reviewers-external.md"
+
+  test("the body stays inside Codex's 8000-byte bound and never inlines the scope reference", async () => {
+    const body = await readRepoFile("skills/ce-doc-review/SKILL.md")
+    const lf = body.replace(/\r\n/g, "\n")
+    const crlfBytes = Buffer.byteLength(lf, "utf8") + (lf.match(/\n/g)?.length ?? 0)
+    expect(crlfBytes).toBeLessThanOrEqual(8_000)
+    expect(body).not.toContain("@./references/all-reviewers-external.md")
+    // The trio gate is kept for `default`; the body opens the pass at `all` as well.
+    expect(body).toContain("**conditional judgment trio** was activated")
+    expect(body).toContain("`cross_model_doc_review_scope`")
+  })
+
+  test("the cross-model reference resolves scope after the egress gate and routes `all` to its reference", async () => {
+    const ref = await readRepoFile("skills/ce-doc-review/references/cross-model-review.md")
+    const gate = ref.indexOf("**Checkout egress policy")
+    const scope = ref.indexOf("**Review scope.**")
+    const resolution = ref.indexOf("Resolve the preference in this order")
+    expect(gate).toBeGreaterThan(-1)
+    expect(scope).toBeGreaterThan(gate)
+    expect(scope).toBeLessThan(resolution)
+    expect(ref).toContain("`cross_model_doc_review_scope:`")
+    expect(ref).toContain("`references/all-reviewers-external.md`")
+    // R7: a same-family target or no installed route falls back to `default` with one line.
+    expect(ref).toMatch(/host's own family[\s\S]{0,200}`default`/)
+    // `default` keeps the whole-doc sweep and the round-1 primer.
+    expect(ref).toContain("whenever the pass runs at scope `default`")
+    expect(ref).toMatch(/At scope `default`, the cross-model pass does \*\*not\*\* receive the accumulated decision primer/)
+  })
+
+  test("the scope reference keeps feasibility and adversarial on the host and skips the sweep", async () => {
+    const ref = await readRepoFile(allReference)
+    expect(ref).toMatch(/`feasibility-reviewer`[^\n]*host/)
+    expect(ref).toMatch(/`adversarial-document-reviewer`[^\n]*host/)
+    expect(ref).toContain("The whole-document sweep does not run")
+    for (const lens of ["coherence", "design-lens", "scope-guardian", "security-lens", "product-lens"]) {
+      expect(ref).toContain(`\`${lens}\``)
+    }
+  })
+
+  test("the scope reference passes the worker flag and the round's decision primer", async () => {
+    const ref = await readRepoFile(allReference)
+    expect(ref).toContain('CROSS_MODEL_REVIEW_SCOPE="all"')
+    expect(ref).toContain("CROSS_MODEL_DECISION_PRIMER=")
+    expect(ref).toMatch(/round 2 or later[\s\S]{0,300}`references\/decision-primer\.md`[\s\S]{0,300}`\$RUN_DIR`/i)
+  })
+
+  test("the scope reference owns disclosure, one deadline, fallback, the quota cascade, and provenance", async () => {
+    const ref = await readRepoFile(allReference)
+    // R8: one disclosure naming recipient, model and effort, count, and egress.
+    expect(ref).toMatch(/one disclosure/i)
+    expect(ref).toMatch(/number of reviewers sent/)
+    // KTD8: every job starts before the host wave, with one shared deadline.
+    expect(ref).toMatch(/before the host wave/)
+    expect(ref).toContain("peer-deadline-secs")
+    // R9 / R10.
+    expect(ref).toMatch(/in-process twin/)
+    expect(ref).toMatch(/quota[\s\S]{0,200}reap every job still running/i)
+    expect(ref).toMatch(/keep every result already collected/)
+    // R13: four provenance states and one Coverage row per external job.
+    for (const state of ["external, verified", "external, unverified", "host by design", "host fallback"]) {
+      expect(ref).toContain(state)
+    }
+    expect(ref).toMatch(/one Coverage row per external job/)
+  })
+
+  test("dispatch resolves the scope before the host wave and holds back external lenses", async () => {
+    const dispatch = await readRepoFile("skills/ce-doc-review/references/dispatch.md")
+    expect(dispatch).toContain("`references/all-reviewers-external.md`")
+    expect(dispatch).toMatch(/scope resolves to `all`[\s\S]{0,300}fallback twin/)
+  })
+
+  test("synthesis scopes every peer-only apply restriction to `default` and keeps promotion family-aware", async () => {
+    const synthesis = await readRepoFile("skills/ce-doc-review/references/synthesis-and-presentation.md")
+    const agreement = sliceSection(synthesis, "### 3.4 Cross-Persona Agreement Promotion", "### 3.5 ")
+    expect(agreement).toContain("Peer-only agreement never promotes")
+    expect(agreement).toMatch(/External reviewers agreeing only with each other/)
+    expect(agreement).toMatch(/at scope `default`, the limits on peer-only findings/)
+    const owner = sliceSection(synthesis, "**Fixes found only by another model.**", "### 3.7 ")
+    expect(owner).toMatch(/At scope `default`, these never qualify for `safe_auto`/)
+    expect(owner).toMatch(/At scope `all`[\s\S]*keeps the `safe_auto` and auto-apply eligibility its in-process twin would have had/)
+    const routing = sliceSection(synthesis, "### 3.7 Route by Autofix Class", "### 3.8 ")
+    expect(routing).toMatch(/At scope `default`, findings raised only by another model retain the R18 restriction/)
+    expect(routing).toMatch(/\*\*No silent fixes from another model alone \(scope `default`\).\*\*/)
+    const apply = sliceSection(synthesis, "### Apply the findings 3.7 routed to Apply", "### Route Remaining Findings")
+    expect(apply).toMatch(/At scope `default`, do \*\*not\*\* apply a finding whose only reviewers are cross-model peers/)
+    expect(apply).toMatch(/Obligations and, at scope `default`, peer-only findings/)
+    const remaining = sliceSection(synthesis, "### Route Remaining Findings", "**Self-contained rendered lines")
+    expect(remaining).toMatch(/at scope `default`, Apply-diverted peer-only findings/)
+  })
+
+  test("the output template renders provenance and one Coverage row per external job", async () => {
+    const template = await readRepoFile("skills/ce-doc-review/references/review-output-template.md")
+    expect(template).toMatch(/\*\*Cross-model Coverage rows\*\*/)
+    for (const state of ["external, verified", "external, unverified", "host by design", "host fallback"]) {
+      expect(template).toContain(state)
+    }
+  })
+})
