@@ -2069,3 +2069,166 @@ describe("cross-model-adversarial-review argv integrity", () => {
     expect(prompt).toContain("untrusted diff data")
   })
 })
+
+describe("cross-model-adversarial-review reviewer-name argument (all-reviewers scope)", () => {
+  const ELIGIBLE = [
+    "adversarial", "correctness", "security", "performance", "reliability", "maintainability",
+    "api-contract", "data-migration", "project-standards", "julik-frontend-races", "swift-ios",
+  ]
+  const EXCLUDED = [
+    "learnings-researcher", "agent-native", "deployment-verification-agent", "previous-comments", "testing",
+  ]
+  const PERSONAS_DIR = path.join(__dirname, "../../skills/ce-code-review/references/personas")
+
+  function personaRunDir(reviewer: string, brief = true): string {
+    const runDir = mkTempRoot("xmodel-cr-persona-run-")
+    writeFileSync(path.join(runDir, `${reviewer}-review-constraints.md`), "none\n")
+    if (brief) writeFileSync(path.join(runDir, `${reviewer}-review-brief.md`), "Intent: bump the reviewed constant.\n")
+    return runDir
+  }
+
+  function capturingClaude(reviewer: string): { env: NodeJS.ProcessEnv; promptCapture: string } {
+    const promptCapture = path.join(mkTempRoot("xmodel-cr-persona-prompt-"), "prompt.txt")
+    const body = `#!/bin/sh
+cat > "\${PROMPT_CAPTURE}"
+printf '%s' '{"structured_output":{"reviewer":"${reviewer}","findings":[{"title":"t","file":"reviewed.ts","line":1}],"residual_risks":[],"testing_gaps":[]}}'
+`
+    const { env } = sandbox(["claude"], body)
+    return { env: { ...env, PROMPT_CAPTURE: promptCapture }, promptCapture }
+  }
+
+  test("every eligible reviewer maps to a persona file that returns the shared JSON schema", () => {
+    for (const reviewer of ELIGIBLE) {
+      const persona = readFileSync(path.join(PERSONAS_DIR, `${reviewer}-reviewer.md`), "utf8")
+      expect(persona).toContain(`"reviewer": "${reviewer}"`)
+      expect(persona).toContain('"residual_risks"')
+      expect(persona).toContain('"testing_gaps"')
+      const { env } = sandbox(["claude"])
+      const runDir = personaRunDir(reviewer)
+      const r = run(["codex", "claude", "HEAD", runDir, reviewer], runDir, { ...env, CROSS_MODEL_DRY_RUN: "1" })
+      expect(r.stdout).toContain("RESOLVED_PEERS: claude")
+    }
+  })
+
+  test("correctness reviews with its own persona, inputs, and reviewer-prefixed output", () => {
+    const { env, promptCapture } = capturingClaude("correctness")
+    const runDir = personaRunDir("correctness")
+    const r = run(["codex", "claude", "HEAD", runDir, "correctness"], runDir, env)
+    expect(r.code).toBe(0)
+    expect(r.files).toContain("correctness-claude.json")
+    expect(peerOutputs(r.files)).toHaveLength(0)
+    const out = JSON.parse(readFileSync(path.join(runDir, "correctness-claude.json"), "utf8"))
+    expect(out.reviewer).toBe("correctness-claude")
+    expect(out.cross_model_route).toBe("claude")
+    const prompt = readFileSync(promptCapture, "utf8")
+    const correctnessPersona = readFileSync(path.join(PERSONAS_DIR, "correctness-reviewer.md"), "utf8")
+    expect(prompt.startsWith(correctnessPersona)).toBe(true)
+    expect(prompt).not.toContain("Think like an attacker")
+    expect(prompt).not.toContain("ADVERSARIAL REVIEW MAP")
+    expect(prompt).toMatch(/=== BEGIN REVIEW MAP [0-9a-f]+ ===/)
+    expect(prompt).toContain("Intent: bump the reviewed constant.")
+    expect(prompt).toContain("<output-contract>")
+    expect(prompt).toContain('Set the top-level "reviewer" field to "correctness"')
+    expect(r.stderr).toContain("lens=correctness")
+    expect(r.stderr).toContain("reviewer correctness-claude")
+  })
+
+  test("codex events and usage files carry the reviewer prefix", () => {
+    const review = JSON.stringify({ reviewer: "security", findings: [], residual_risks: [], testing_gaps: [] })
+    const { env } = sandbox(
+      ["codex"],
+      `#!/bin/sh
+out=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = '-o' ]; then out="$2"; shift 2; else shift; fi
+done
+cat >/dev/null
+printf '%s' '${review}' > "$out"
+printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":2}}'
+`,
+    )
+    const runDir = personaRunDir("security")
+    const r = run(["claude", "codex", "HEAD", runDir, "security"], runDir, env)
+    expect(r.files).toContain("security-codex.json")
+    expect(r.files).toContain("security-codex-events.jsonl")
+    expect(r.files).toContain("security-codex-usage.json")
+    expect(r.files.filter((file) => file.startsWith("adversarial-codex"))).toEqual([])
+    expect(JSON.parse(readFileSync(path.join(runDir, "security-codex.json"), "utf8")).reviewer).toBe("security-codex")
+  }, 20_000)
+
+  test("excluded, unknown, and path-like reviewer names are refused before provider egress", () => {
+    for (const reviewer of [...EXCLUDED, "bogus", "../x", "correctness/../adversarial", "adversarial-reviewer", ""]) {
+      const invoked = path.join(mkTempRoot("xmodel-cr-refused-"), "marker")
+      const { env } = sandbox(["claude"], `#!/bin/sh\n: > '${invoked}'\n`)
+      const runDir = personaRunDir(reviewer.replace(/[^a-z-]/g, "_") || "empty")
+      writeFileSync(path.join(runDir, "adversarial-review-constraints.md"), "none\n")
+      const before = readdirSync(runDir).sort()
+      const r = run(["codex", "claude", "HEAD", runDir, reviewer], runDir, env)
+      expect(r.code).toBe(0)
+      expect(existsSync(invoked)).toBe(false)
+      expect(r.files.sort()).toEqual(before)
+      expect(r.stderr).toContain("skipping")
+      if (EXCLUDED.includes(reviewer)) {
+        expect(r.stderr).toContain(`reviewer '${reviewer}' is not eligible for a cross-model run`)
+      } else {
+        expect(r.stderr).toContain("is not a cross-model code reviewer")
+      }
+    }
+  })
+
+  test("a missing persona-prefixed brief or constraints file stops before provider egress", () => {
+    for (const missing of ["brief", "constraints"] as const) {
+      const invoked = path.join(mkTempRoot(`xmodel-cr-missing-${missing}-`), "marker")
+      const { env } = sandbox(["claude"], `#!/bin/sh\n: > '${invoked}'\n`)
+      const runDir = makeRunDir()
+      writeFileSync(path.join(runDir, "adversarial-review-brief.md"), "- adversarial map only\n")
+      if (missing === "brief") writeFileSync(path.join(runDir, "performance-review-constraints.md"), "none\n")
+      else writeFileSync(path.join(runDir, "performance-review-brief.md"), "- map\n")
+      const r = run(["codex", "claude", "HEAD", runDir, "performance"], runDir, env)
+      expect(existsSync(invoked)).toBe(false)
+      expect(r.files).not.toContain("performance-claude.json")
+      expect(r.stderr).toContain("skipping before provider egress")
+    }
+  })
+
+  test("large-diff recovery instruction is sent only to personas that define the rule", () => {
+    const { env, promptCapture } = capturingClaude("maintainability")
+    const runDir = personaRunDir("maintainability")
+    const r = run(["codex", "claude", "HEAD~1", runDir, "maintainability"], runDir, {
+      ...env,
+      CROSS_MODEL_INLINE_MAX_TOKENS: "1",
+    })
+    expect(r.files).toContain("maintainability-claude.json")
+    const prompt = readFileSync(promptCapture, "utf8")
+    expect(prompt).toContain("too large to inline safely")
+    expect(prompt).toContain("Follow the orchestrator review map")
+    expect(prompt).not.toContain("large-diff recovery rule")
+    expect(prompt).not.toContain("diff --git")
+  })
+
+  test("an explicit adversarial argument composes the same prompt and outputs as no argument", () => {
+    const prompts: string[] = []
+    for (const args of [[], ["adversarial"]]) {
+      const { env, promptCapture } = capturingClaude("adversarial")
+      const runDir = makeRunDir()
+      writeFileSync(path.join(runDir, "adversarial-review-brief.md"), "- adversarial map\n")
+      const r = run(["codex", "claude", "HEAD", runDir, ...args], runDir, env)
+      expect(r.files.sort()).toEqual([
+        "adversarial-claude.json", "adversarial-review-brief.md", "adversarial-review-constraints.md",
+      ])
+      expect(JSON.parse(readFileSync(path.join(runDir, "adversarial-claude.json"), "utf8")).reviewer).toBe("adversarial-claude")
+      const prompt = readFileSync(promptCapture, "utf8")
+      expect(prompt).toContain("Think like an attacker")
+      expect(prompt).toMatch(/=== BEGIN ADVERSARIAL REVIEW MAP [0-9a-f]+ ===/)
+      expect(prompt).not.toContain("<output-contract>")
+      prompts.push(prompt.replace(/[0-9a-f]{16}/g, "NONCE"))
+    }
+    expect(prompts[1]).toBe(prompts[0])
+  })
+
+  test("--emit-adapter argv does not depend on the reviewer argument", () => {
+    for (const route of ROUTES) {
+      expect(emitAdapter(route)).not.toContain("correctness")
+    }
+  })
+})
