@@ -1,0 +1,4 @@
+cross-model-adversarial-review: route codex, reviewer security, model gpt-5.6-luna (effort xhigh)
+peer skip evidence: codex exited 1 after 212s
+peer skip evidence: error: stream disconnected before completion: response.failed event received (malformed tool output)
+cross-model-adversarial-review: no parseable findings JSON; skipping fold-in

@@ -1,0 +1,2 @@
+# The repository ignores *.log; a peer job's out.log is fixture evidence.
+!**/run/jobs/*/out.log

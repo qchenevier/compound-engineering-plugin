@@ -1,9 +1,11 @@
 # Cross-Model Adversarial Pass — Skill-Creator Eval Spec
 
-This is the required behavioral eval for ce-code-review's cross-model
-adversarial pass. Deterministic route tests cover the worker; these cases cover
+This is the required behavioral eval for ce-code-review's cross-model pass.
+Cases 1-9 cover scope `default` (the adversarial lens only). Cases 10-16 cover
+scope `all` (`references/all-reviewers-external.md`). Deterministic route tests cover the worker; these cases cover
 the SKILL.md/reference orchestration that only a fresh agent can execute. Inject
-the current `SKILL.md`, `references/cross-model-review.md`, and the relevant
+the current `SKILL.md`, `references/cross-model-review.md`,
+`references/all-reviewers-external.md` for the `all` cases, and the relevant
 Stage 5 synthesis prose through the `skill-creator` workflow. Run on Claude Code
 and Codex with fake peer CLIs first on PATH.
 
@@ -67,9 +69,54 @@ and Codex with fake peer CLIs first on PATH.
    them further rather than returning a progress note or silently omitting the
    pass. A normal-sized fixture keeps the direct diff path.
 
+## Scope `all` cases
+
+The repo-owned cells for these cases are the `ce-code-review/all-scope-*` rows in
+`tests/skill-eval-cell/catalog.ts`. They are read-only decision probes over
+stub artifacts and job directories, so no provider is called.
+
+10. **Scope resolution order.** `cross_model_review_mode: off` is read first:
+    with no conversation opt-in no job starts and the reason is "disabled by
+    checkout config", even when the scope key is `all`. An explicit conversation
+    opt-in for external review of all reviewers runs `all`. A conversation
+    prohibition starts no job whatever the key says. A conversation scope request
+    overrides the key in both directions for that run.
+
+11. **Eligibility.** At `all`, every selected persona the worker accepts goes
+    external. `testing-reviewer`, `learnings-researcher`,
+    `agent-native-reviewer`, `deployment-verification-agent`, and
+    `previous-comments-reviewer` stay on the host, and so does
+    `adversarial-reviewer`. `pr-remote` and `branch-remote` start no job, and the
+    lite and focused depth paths run at `default`.
+
+12. **Same-family or missing route.** When the resolved target is the host's
+    own family, or no eligible route is installed, the run uses `default` and
+    says why in one line.
+
+13. **One disclosure, then every start.** One disclosure before any job names
+    the recipient, the model and effort, the number and names of the reviewers
+    sent, and that code leaves the machine. Every job starts at Stage 3d before
+    the local wave, with one shared deadline.
+
+14. **Per-persona fallback.** A job that failed, was skipped, timed out, or was
+    reaped runs as its in-process twin, and the report names the persona and the
+    reason. No replacement recipient is started and no route is retried by hand.
+    An artifact with no findings is a completed review.
+
+15. **Quota or authentication stops the external phase.** The first such
+    failure reaps the jobs still running, keeps collected results, dispatches
+    twins for every persona without a result, and restarts nothing. Jobs still
+    running at the shared deadline are reaped, recorded as `timeout`, and run as
+    twins.
+
+16. **Provenance.** Each selected reviewer is external-verified (the artifact
+    records `independence_verified: true`), external-unverified,
+    host-fallback with a reason, or host-by-design. The state comes from the
+    artifact and the `peers` record, never from the reviewer's name.
+
 ## Pass criteria
 
-All nine cases pass on the current on-disk source on Claude Code and Codex. The
+All sixteen cases pass on the current on-disk source on Claude Code and Codex. The
 negative activation cases launch no peer, the fixed-route cases perform no
 worker-internal recipient fallback, and only `independence_verified: true`
 artifacts can promote agreement.

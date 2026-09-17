@@ -1,0 +1,14 @@
+{
+ "reviewer": "security-codex",
+ "cross_model_route": "codex",
+ "cross_model_target": "codex",
+ "model_requested": "gpt-5.6-luna",
+ "model_actual": "unverified",
+ "effort_requested": "xhigh",
+ "effort_actual": "unverified",
+ "receipt_supported": false,
+ "independence_verified": true,
+ "findings": [],
+ "residual_risks": [],
+ "testing_gaps": []
+}

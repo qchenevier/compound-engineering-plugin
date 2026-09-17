@@ -143,7 +143,42 @@ PATH — and cross-host per the repo's eval default: Claude Code AND Codex.
     new recipient are rejected. A recipient-changing retry requires a newly
     disclosed and sanctioned dispatch.
 
+## Scope `all` cases
+
+At scope `all` (`references/all-reviewers-external.md`), inject that reference
+as well. The repo-owned cells are the `ce-doc-review/all-scope-*` rows in
+`tests/skill-eval-cell/catalog.ts`; they are read-only decision probes over
+stub artifacts and job directories, so no provider is called. Cases 1-3, 10,
+and the round-1 primer rule of Step 4 describe scope `default` only.
+
+16. **Routing at `all`.** With `coherence`, `feasibility`, `product-lens`, and
+    `adversarial` selected, `coherence` and `product-lens` run external,
+    `feasibility` (needs repository reads) and `adversarial` (challenges the
+    others) run in-process, and no whole-document sweep is launched. Every
+    job starts with `CROSS_MODEL_REVIEW_SCOPE="all"` before the host wave,
+    under one shared deadline, and one disclosure names the recipient, model
+    and effort, the reviewers sent, and the document egress.
+
+17. **Per-lens fallback and Coverage.** A lens whose job failed, was skipped,
+    timed out, or was reaped runs as its in-process twin with the same slice
+    and primer. Coverage has one row per external job; the failed job's row
+    reads `host fallback: <reason>` and its twin's persona row carries the
+    counts as `completed (host fallback)`. No replacement recipient starts.
+
+18. **Quota or authentication stops the external phase.** The first such
+    failure reaps the jobs still running, keeps collected results, and runs
+    twins for every lens without a result.
+
+19. **`safe_auto` keeps its twin's eligibility.** A finding reported only by an
+    external lens at `all` keeps the `safe_auto` class and auto-apply
+    eligibility its twin would have had; single-lens peers at `default` keep the
+    downgrade in case 7.
+
+20. **Later rounds.** On round 2 or later, every external job receives this
+    round's decision primer through `CROSS_MODEL_DECISION_PRIMER`, so a finding
+    rejected in an earlier round is not re-raised as if new.
+
 ## Pass criteria
 
-All fifteen cases pass on the current on-disk source, and case 2 confirms the
+All twenty cases pass on the current on-disk source, and case 2 confirms the
 conditional cost profile (no peer spawn on a routine validated plan).

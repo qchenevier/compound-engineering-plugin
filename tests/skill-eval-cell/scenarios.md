@@ -91,6 +91,34 @@ bun run test:skill-eval-pack -- --wave1 --arm ab
 bun run test:skill-eval-pack -- --id lfg/plan-first --arm ab
 ```
 
+## Cross-model scope `all` (post-only)
+
+`cross_model_code_review_scope` and `cross_model_doc_review_scope` at `all` send every eligible reviewer to the cross-model peer instead of one lens (code) or the conditional trio plus whole-doc sweep (doc). These rows are read-only decision probes: no provider is called. Gate rows state the Stage 1-3 results and the installed peer CLIs, then grade the declared scope, job count, and external set. Collection rows seed a `run/` directory with worker-shaped artifacts and runner job dirs (`meta.json`, `out.log`, and a `status` file only when the job is terminal), then grade per-reviewer provenance and the next step. `fixtures/.gitignore` re-includes each job's `out.log`, which the root `*.log` rule would drop.
+
+```bash
+bun run test:skill-eval-pack -- --id ce-code-review/all-scope-quota-stops-external-phase --arm post --hosts claude,codex
+```
+
+| ID | Grade |
+|---|---|
+| `ce-code-review/all-scope-routes-eligible-personas` | Key `all`: correctness, performance, security external; testing and adversarial stay on the host |
+| `ce-code-review/all-scope-pr-remote-starts-nothing` | `pr-remote` scope: zero jobs |
+| `ce-code-review/all-scope-mode-off-without-opt-in` | Mode `off` with key `all`: zero jobs, scope not resolved, reason `disabled by checkout config` |
+| `ce-code-review/all-scope-mode-off-with-explicit-opt-in` | Mode `off` plus a conversation opt-in for all reviewers: scope `all`, three jobs |
+| `ce-code-review/all-scope-prohibition-beats-key` | Key `all` plus a conversation prohibition: zero jobs |
+| `ce-code-review/all-scope-prompt-requests-all` | Key unset, prompt asks for all reviewers: scope `all` for this run |
+| `ce-code-review/all-scope-prompt-requests-default` | Key `all`, prompt asks for the usual pass: scope `default`, adversarial only |
+| `ce-code-review/all-scope-own-family-only-falls-back` | Only the host's own family is installed: scope `default`, zero jobs (host-neutral wording, so Claude and Codex face the same case) |
+| `ce-code-review/all-scope-disclosure-before-start` | The disclosure names recipient, model or effort, three reviewers, and egress, before any job |
+| `ce-code-review/all-scope-folded-provenance` | Three artifacts: verified, verified with no findings, unverified; testing and adversarial host-by-design; no twins |
+| `ce-code-review/all-scope-failed-job-runs-twin` | Failed security job: host fallback with its reason, twin dispatched, no replacement recipient |
+| `ce-code-review/all-scope-quota-stops-external-phase` | First job hits a usage limit while two run: stop, reap both, twins for all three without a result, keep the collected one |
+| `ce-code-review/all-scope-deadline-reaps-every-job` | Six jobs still running at the shared deadline: started before the local wave, all reaped as `timeout`, six twins |
+| `ce-doc-review/all-scope-routes-eligible-lenses` | Coherence and product-lens external; feasibility and adversarial on the host; no whole-doc sweep; two jobs |
+| `ce-doc-review/all-scope-failed-lens-coverage-row` | Failed coherence job: twin dispatched, its Coverage row reads `host fallback` with the reason, two external-job rows |
+
+Not covered: the plan's "peer resolves to claude on a Claude host" case. Step 1 excludes an attestably same-family target before the scope's R7 check sees it, and the reference does not say whether an excluded configured preference falls through to the default order or ends the pass, so no single answer can be graded. The own-family-only row covers the leg where no eligible route remains. Live dispatch (real job starts, a real reap at the deadline) is not exercised; these rows grade the decision, not the runner.
+
 ## Named gaps
 
 - **Reaping a peer session the cell never launched.** A timed-out host is killed by process group, but `ce-pov`'s peer runner double-forks and calls `setsid()`, so its supervisor lives in a new session outside that group and survives. The driver has no handle on it — it never sees the run id the runner keys its jobs by. Containing it means running each cell inside a cleanup boundary that owns new sessions too (a container, cgroup, or jail), not a change to the kill call.

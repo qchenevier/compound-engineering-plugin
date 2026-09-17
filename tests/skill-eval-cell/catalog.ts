@@ -135,6 +135,32 @@ const FIX = "tests/skill-eval-cell/fixtures"
 const SETUP_INSTRUCTIONS_TASK =
   "Use the ce-setup skill to check this repository's Compound Engineering setup. For every change it would offer, show the exact text and where in the file it would go."
 
+/** Stage 3d gate probe for ce-code-review at cross-model scope `all`: resolve the pass up to the first job start and declare it. */
+function codeReviewAllGateTask(opts: { request: string; stageOne?: string; peers?: string }): string {
+  return `Use the ce-code-review skill on this repo to review the staged change in src/refund.ts. ${opts.request}
+
+Stages 1 through 3 are already done. ${opts.stageOne ?? "Stage 1 resolved a local-aligned scope, and the Review depth gate chose the full path."} Stage 3 selected correctness, security, performance, testing, and adversarial. ${opts.peers ?? "The peer CLIs installed on this machine are codex and claude."} Take those facts as given and do not probe PATH or the environment for them.
+
+Continue at Stage 3d and resolve the cross-model pass up to the point where the first external job would start, then stop. This is a read-only probe: do not create the run directory, do not start any job, and do not dispatch reviewers.
+
+End with exactly these three lines, each once, and nothing else on those lines:
+
+REVIEW_SCOPE: <default, all, or not-resolved when the pass stops before the scope is resolved>
+JOBS_TO_START: <number of external jobs you would start>
+EXTERNAL_REVIEWERS: <short names sent externally, alphabetical, separated by a comma and a space, or none>`
+}
+
+/** Stage 4 collection probe for ce-code-review at scope `all`, over a run directory fixture. */
+function codeReviewAllCollectionTask(situation: string, lines: string): string {
+  return `Continue ce-code-review at the cross-model collection step, using the run directory at run/ in this workspace. The review runs at cross-model scope \`all\`. Stage 3d already attested the host, resolved target codex as a family different from the host's, made the disclosure, and started the jobs. Stage 3 selected ${situation}
+
+This is a read-only probe: do not run the runner, do not start any job, do not dispatch reviewers, and do not edit anything. Read the run directory and any job out.log yourself, then resolve from the skill's references what happens next.
+
+End with exactly these lines, each once, and nothing else on those lines:
+
+${lines}`
+}
+
 
 /** Cheap read-only cells that pin a real decision. Live mutation/delegation is not in this set. */
 export const WAVE1 = [
@@ -391,6 +417,83 @@ Report NEXT: handoff if babysit should be invoked, NEXT: continue if the active 
     pre_contract: "Never add a fact, number, name, quote, or citation the source did not supply, and never drop a claim.",
     task: "Use the ce-noslop skill to edit facts.md for a repo document. Return the full result text in chat between the markers RESULT-START and RESULT-END, then the one-line summary. Do not write files.",
     grade: { workspace_read: ["facts.md"], must_include: ["92", "14", "45", "12", "3.8", "4 milliseconds"], result_must_not_include: ["it is important to note", "boasting"], actions: "none" },
+  },
+  {
+    id: "ce-doc-review/all-scope-routes-eligible-lenses",
+    skill: "ce-doc-review",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    git_init: true,
+    fixture: `${FIX}/doc-review-all-roster`,
+    post_only: true,
+    why: "Scope `all` sends product-lens and coherence, keeps feasibility (needs repo reads) and adversarial (the challenger) on the host, and drops the whole-doc sweep (R5, KTD4, KTD5).",
+    pre_contract: "At scope all, every eligible lens goes external; feasibility and adversarial stay in-process; no whole-document sweep.",
+    task: `Use the ce-doc-review skill to review docs/plans/2026-09-10-001-feat-weekly-usage-digest-plan.md. Phase 1 is already done: the document is a unified-plan, and the team is coherence-reviewer, feasibility-reviewer, product-lens-reviewer, and adversarial-document-reviewer. The peer CLIs installed on this machine are codex and claude; take that as given and do not probe PATH or the environment for it.
+
+Resolve the cross-model judgment pass up to the point where the first external job would start, then stop. This is a read-only probe: do not create a run directory, do not start any job, and do not dispatch reviewers.
+
+End with exactly these lines, each once, and nothing else on those lines:
+
+REVIEW_SCOPE: <default or all>
+ROUTE_COHERENCE: <external or host>
+ROUTE_FEASIBILITY: <external or host>
+ROUTE_PRODUCT_LENS: <external or host>
+ROUTE_ADVERSARIAL: <external or host>
+WHOLE_DOC_SWEEP: <yes or no>
+JOBS_TO_START: <number of external jobs you would start>`,
+    grade: {
+      files_read_post: ["references/all-reviewers-external.md"],
+      declared: {
+        REVIEW_SCOPE: "all",
+        ROUTE_COHERENCE: "external",
+        ROUTE_FEASIBILITY: "host",
+        ROUTE_PRODUCT_LENS: "external",
+        ROUTE_ADVERSARIAL: "host",
+        WHOLE_DOC_SWEEP: "no",
+        JOBS_TO_START: "2",
+      },
+      actions: "none",
+      delegates: "none",
+    },
+  },
+  {
+    id: "ce-doc-review/all-scope-failed-lens-coverage-row",
+    skill: "ce-doc-review",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    fixture: `${FIX}/doc-review-all-one-failed`,
+    post_only: true,
+    why: "R9 and R13: a failed external lens keeps its own Coverage row as a host fallback with its reason, its twin carries the counts, and every external job has a row.",
+    pre_contract: "At scope all, one Coverage row per external job; a job without a usable result shows 'host fallback: <reason>' and its twin's row shows 'completed (host fallback)'.",
+    task: `Continue ce-doc-review on docs/plans/2026-09-10-001-feat-weekly-usage-digest-plan.md at the point where the host wave has returned, using the run directory at run/ in this workspace. The review runs at cross-model scope \`all\`: the pass resolved target codex as a family different from the host's, made the disclosure, and started one job for coherence and one for product-lens. The team is coherence-reviewer, feasibility-reviewer, product-lens-reviewer, and adversarial-document-reviewer. The product-lens job's verified read exited 0 and emitted run/product-lens-codex.json. The coherence job's verified read exited 3 and reports the job as failed. Read the run directory and the job out.log files yourself.
+
+This is a read-only probe: do not run the runner, do not start any job, do not dispatch reviewers, and do not edit anything. Resolve from the skill's references what happens next and how Coverage reports it.
+
+End with exactly these lines, each once, and nothing else on those lines:
+
+NEXT_FOR_COHERENCE: <dispatch-twin, replacement-peer, or nothing>
+STATUS_COHERENCE_CODEX: <external-verified, external-unverified, host-fallback, or host-by-design>
+STATUS_PRODUCT_LENS_CODEX: <same choices>
+STATUS_FEASIBILITY: <same choices>
+EXTERNAL_JOB_ROWS: <number of Coverage rows for external jobs>
+COVERAGE_ROW_COHERENCE_CODEX: <the Status cell of that Coverage row>`,
+    grade: {
+      files_read_post: ["references/all-reviewers-external.md"],
+      declared: {
+        NEXT_FOR_COHERENCE: "dispatch-twin",
+        STATUS_COHERENCE_CODEX: "host-fallback",
+        STATUS_PRODUCT_LENS_CODEX: "external-verified",
+        STATUS_FEASIBILITY: "host-by-design",
+        EXTERNAL_JOB_ROWS: "2",
+      },
+      must_include_field: "COVERAGE_ROW_COHERENCE_CODEX",
+      must_include: ["host fallback"],
+      must_include_any: [["failed", "exited 1", "output schema", "no parseable"]],
+      actions: "none",
+      delegates: "none",
+    },
   },
   {
     id: "ce-doc-review/approval-versus-judgment-summary",
@@ -2239,6 +2342,337 @@ PROMOTION: not-allowed`,
     grade: {
       files_read_post: ["references/cross-model-review.md"],
       declared: { LENS: "folded", PROMOTION: "allowed" },
+      actions: "none",
+      delegates: "none",
+    },
+  },
+  {
+    id: "ce-code-review/all-scope-routes-eligible-personas",
+    skill: "ce-code-review",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    git_init: true,
+    git_staged: ["src/refund.ts"],
+    fixture: `${FIX}/review-all-scope-config`,
+    post_only: true,
+    why: "Scope `all` from the checkout key sends every eligible selected persona and keeps testing (writes) and adversarial (the challenger) on the host (R5).",
+    pre_contract: "At scope all, eligible personas run through the worker; ineligible personas and adversarial run in-process.",
+    task: codeReviewAllGateTask({ request: "" }),
+    grade: {
+      files_read_post: ["references/all-reviewers-external.md"],
+      declared: { REVIEW_SCOPE: "all", JOBS_TO_START: "3", EXTERNAL_REVIEWERS: "correctness, performance, security" },
+      actions: "none",
+      delegates: "none",
+    },
+  },
+  {
+    id: "ce-code-review/all-scope-pr-remote-starts-nothing",
+    skill: "ce-code-review",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    git_init: true,
+    fixture: `${FIX}/review-all-scope-config`,
+    post_only: true,
+    why: "A remote scope reviews a head the local tree is not, so scope `all` starts no peer there either (R6).",
+    pre_contract: "pr-remote and branch-remote start no job at either scope.",
+    task: codeReviewAllGateTask({
+      request: "The target is PR #42.",
+      stageOne: "Stage 1 resolved the pr-remote scope for PR #42, whose head is not checked out here, and the Review depth gate chose the full path.",
+    }),
+    grade: {
+      files_read_post: ["references/cross-model-review.md"],
+      declared: { JOBS_TO_START: "0", EXTERNAL_REVIEWERS: "none" },
+      actions: "none",
+      delegates: "none",
+    },
+  },
+  {
+    id: "ce-code-review/all-scope-mode-off-without-opt-in",
+    skill: "ce-code-review",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    git_init: true,
+    git_staged: ["src/refund.ts"],
+    fixture: `${FIX}/review-all-mode-off`,
+    post_only: true,
+    why: "`cross_model_review_mode: off` gates the pass before the scope key is read, so `all` in the same file starts nothing (R3, KTD2).",
+    pre_contract: "Mode off skips the pass with reason 'disabled by checkout config' unless the user opts in for this run.",
+    task: codeReviewAllGateTask({ request: "" }).replace(
+      "EXTERNAL_REVIEWERS:",
+      "SKIP_REASON: <the recorded reason the cross-model pass does not run, or none>\nEXTERNAL_REVIEWERS:",
+    ).replace("these three lines", "these four lines"),
+    grade: {
+      files_read_post: ["references/cross-model-review.md"],
+      declared: { REVIEW_SCOPE: "not-resolved", JOBS_TO_START: "0", EXTERNAL_REVIEWERS: "none" },
+      must_include_field: "SKIP_REASON",
+      must_include: ["disabled by checkout config"],
+      actions: "none",
+      delegates: "none",
+    },
+  },
+  {
+    id: "ce-code-review/all-scope-mode-off-with-explicit-opt-in",
+    skill: "ce-code-review",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    git_init: true,
+    git_staged: ["src/refund.ts"],
+    fixture: `${FIX}/review-all-mode-off`,
+    post_only: true,
+    why: "The live opt-in leg of R3: a conversation request for external review of all reviewers overrides `cross_model_review_mode: off` for this run.",
+    pre_contract: "Mode off yields to an explicit conversation opt-in; a config value is not that opt-in.",
+    task: codeReviewAllGateTask({
+      request: "I know this checkout turns cross-model review off, but for this run I explicitly want external review: send all reviewers to the cross-model peer.",
+    }),
+    grade: {
+      files_read_post: ["references/all-reviewers-external.md"],
+      declared: { REVIEW_SCOPE: "all", JOBS_TO_START: "3", EXTERNAL_REVIEWERS: "correctness, performance, security" },
+      actions: "none",
+      delegates: "none",
+    },
+  },
+  {
+    id: "ce-code-review/all-scope-prohibition-beats-key",
+    skill: "ce-code-review",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    git_init: true,
+    git_staged: ["src/refund.ts"],
+    fixture: `${FIX}/review-all-scope-config`,
+    post_only: true,
+    why: "A conversation prohibition wins over the scope key (R3, KTD2).",
+    pre_contract: "An explicit user prohibition on external review overrides every key.",
+    task: codeReviewAllGateTask({
+      request: "This code is under an embargo: do not send any of it to another model or provider for this review.",
+    }),
+    grade: {
+      files_read_post: ["references/cross-model-review.md"],
+      declared: { JOBS_TO_START: "0", EXTERNAL_REVIEWERS: "none" },
+      actions: "none",
+      delegates: "none",
+    },
+  },
+  {
+    id: "ce-code-review/all-scope-prompt-requests-all",
+    skill: "ce-code-review",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    git_init: true,
+    git_staged: ["src/refund.ts"],
+    fixture: `${FIX}/review-scope-unset`,
+    post_only: true,
+    why: "With the key unset, a conversation request for all reviewers widens this run to `all` (R2).",
+    pre_contract: "A conversation scope request overrides the key for one run.",
+    task: codeReviewAllGateTask({ request: "This time, send all reviewers to the cross-model peer." }),
+    grade: {
+      files_read_post: ["references/all-reviewers-external.md"],
+      declared: { REVIEW_SCOPE: "all", JOBS_TO_START: "3", EXTERNAL_REVIEWERS: "correctness, performance, security" },
+      actions: "none",
+      delegates: "none",
+    },
+  },
+  {
+    id: "ce-code-review/all-scope-prompt-requests-default",
+    skill: "ce-code-review",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    git_init: true,
+    git_staged: ["src/refund.ts"],
+    fixture: `${FIX}/review-all-scope-config`,
+    post_only: true,
+    why: "The other direction of R2: with the key at `all`, a request for the usual pass narrows this run to `default`, which sends only the adversarial lens.",
+    pre_contract: "A conversation scope request overrides the key for one run.",
+    task: codeReviewAllGateTask({ request: "Only the usual cross-model pass this time." }),
+    grade: {
+      files_read_post: ["references/cross-model-review.md"],
+      declared: { REVIEW_SCOPE: "default", JOBS_TO_START: "1", EXTERNAL_REVIEWERS: "adversarial" },
+      actions: "none",
+      delegates: "none",
+    },
+  },
+  {
+    id: "ce-code-review/all-scope-own-family-only-falls-back",
+    skill: "ce-code-review",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    git_init: true,
+    git_staged: ["src/refund.ts"],
+    fixture: `${FIX}/review-all-scope-config`,
+    post_only: true,
+    why: "R7: when the only installed peer is the host's own family, `all` has no eligible route, so the run falls to `default` and says why in one line. Stated host-neutrally so Claude and Codex face the same case.",
+    pre_contract: "A same-family target or no eligible route runs at default with a one-line reason.",
+    task: codeReviewAllGateTask({
+      request: "",
+      peers: "The only peer CLI installed on this machine is the one for your own model family: claude if you are a Claude model, codex if you are an OpenAI model.",
+    }).replace(
+      "EXTERNAL_REVIEWERS:",
+      "SCOPE_NOTE: <the one line you would tell the user about the review scope, or none>\nEXTERNAL_REVIEWERS:",
+    ).replace("these three lines", "these four lines"),
+    grade: {
+      files_read_post: ["references/cross-model-review.md"],
+      declared: { REVIEW_SCOPE: "default", JOBS_TO_START: "0", EXTERNAL_REVIEWERS: "none" },
+      actions: "none",
+      delegates: "none",
+    },
+  },
+  {
+    id: "ce-code-review/all-scope-disclosure-before-start",
+    skill: "ce-code-review",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    git_init: true,
+    git_staged: ["src/refund.ts"],
+    fixture: `${FIX}/review-all-scope-config`,
+    post_only: true,
+    why: "R8: one disclosure before any job names the recipient, model and effort, the number of reviewers sent, and that code leaves the machine, without asking for confirmation.",
+    pre_contract: "One disclosure replaces the Step 3 announcement at scope all.",
+    task: `${codeReviewAllGateTask({ request: "" })}
+
+Before those three lines, print the exact user-facing disclosure you would give at this point, under a line that reads only DISCLOSURE:`,
+    grade: {
+      files_read_post: ["references/all-reviewers-external.md"],
+      declared: { REVIEW_SCOPE: "all", JOBS_TO_START: "3" },
+      must_include_field: "DISCLOSURE",
+      must_include_any: [
+        ["codex", "claude", "gpt", "opus"],
+        ["effort", "reasoning"],
+        ["3 reviewers", "three reviewers", "3 personas", "three personas", "3 review", "three review"],
+        ["leaves", "leave the machine", "sent to", "sends", "sending", "leaves this machine", "outside"],
+      ],
+      actions: "none",
+      delegates: "none",
+    },
+  },
+  {
+    id: "ce-code-review/all-scope-folded-provenance",
+    skill: "ce-code-review",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    fixture: `${FIX}/review-all-folded`,
+    post_only: true,
+    why: "R13: provenance comes from each artifact, not from reviewer names. One artifact lacks verified independence, one has no findings (a completed review, not a fallback), and the host personas are host-by-design.",
+    pre_contract: "external-verified needs independence_verified: true; an artifact without it is external-unverified; selected reviewers with no peers entry are host-by-design.",
+    task: codeReviewAllCollectionTask(
+      "correctness, security, performance, testing, and adversarial; the jobs for correctness, security, and performance were started and are all terminal, and their verified reads exited 0 and emitted the artifacts under run/.",
+      `PROVENANCE_CORRECTNESS: <external-verified, external-unverified, host-fallback, or host-by-design>
+PROVENANCE_SECURITY: <same choices>
+PROVENANCE_PERFORMANCE: <same choices>
+PROVENANCE_TESTING: <same choices>
+PROVENANCE_ADVERSARIAL: <same choices>
+TWINS_TO_DISPATCH: <short names whose in-process twin must now run, alphabetical, separated by a comma and a space, or none>`,
+    ),
+    grade: {
+      files_read_post: ["references/all-reviewers-external.md"],
+      declared: {
+        PROVENANCE_CORRECTNESS: "external-verified",
+        PROVENANCE_SECURITY: "external-verified",
+        PROVENANCE_PERFORMANCE: "external-unverified",
+        PROVENANCE_TESTING: "host-by-design",
+        PROVENANCE_ADVERSARIAL: "host-by-design",
+        TWINS_TO_DISPATCH: "none",
+      },
+      actions: "none",
+      delegates: "none",
+    },
+  },
+  {
+    id: "ce-code-review/all-scope-failed-job-runs-twin",
+    skill: "ce-code-review",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    fixture: `${FIX}/review-all-one-failed`,
+    post_only: true,
+    why: "R9: a failed external job at scope `all` falls back to that persona's in-process twin, never to a replacement recipient or a hand retry, and the report names it.",
+    pre_contract: "At scope all a job without a usable artifact falls back to its twin with the reason recorded.",
+    task: codeReviewAllCollectionTask(
+      "correctness, security, performance, testing, and adversarial; the jobs for correctness, security, and performance were started. Correctness and performance are done and their verified reads emitted the artifacts under run/. The security job's verified read exited 3 and reports the job as failed.",
+      `PROVENANCE_SECURITY: <external-verified, external-unverified, host-fallback, or host-by-design>
+PROVENANCE_CORRECTNESS: <same choices>
+TWINS_TO_DISPATCH: <short names whose in-process twin must now run, alphabetical, separated by a comma and a space, or none>
+REPLACEMENT_RECIPIENT: <the new target you would start a job on, or none>
+FALLBACK_REASON_SECURITY: <the reason the report gives for security, or none>`,
+    ),
+    grade: {
+      files_read_post: ["references/all-reviewers-external.md"],
+      declared: {
+        PROVENANCE_SECURITY: "host-fallback",
+        PROVENANCE_CORRECTNESS: "external-verified",
+        TWINS_TO_DISPATCH: "security",
+        REPLACEMENT_RECIPIENT: "none",
+      },
+      must_include_field: "FALLBACK_REASON_SECURITY",
+      must_include_any: [["failed", "exited 1", "stream disconnected", "no parseable"]],
+      actions: "none",
+      delegates: "none",
+    },
+  },
+  {
+    id: "ce-code-review/all-scope-quota-stops-external-phase",
+    skill: "ce-code-review",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    fixture: `${FIX}/review-all-quota`,
+    post_only: true,
+    why: "R10: the first quota failure stops the external phase while other jobs still run: reap them, keep the collected result, run twins for every persona without one, and restart nothing.",
+    pre_contract: "A quota, rate-limit, or auth failure on any job reaps the rest, keeps collected results, and runs twins for every persona without a result.",
+    task: codeReviewAllCollectionTask(
+      "correctness, security, performance, maintainability, testing, and adversarial; the jobs for correctness, security, performance, and maintainability were started. Maintainability is done and its verified read emitted its artifact. The first status read after the local wave shows correctness as failed and the other two as running.",
+      `EXTERNAL_PHASE: <continue or stop>
+JOBS_TO_REAP: <short names, alphabetical, separated by a comma and a space, or none>
+TWINS_TO_DISPATCH: <short names whose in-process twin must now run, alphabetical, separated by a comma and a space, or none>
+PROVENANCE_MAINTAINABILITY: <external-verified, external-unverified, host-fallback, or host-by-design>
+REPLACEMENT_RECIPIENT: <the new target you would start a job on, or none>`,
+    ),
+    grade: {
+      files_read_post: ["references/all-reviewers-external.md"],
+      declared: {
+        EXTERNAL_PHASE: "stop",
+        JOBS_TO_REAP: "performance, security",
+        TWINS_TO_DISPATCH: "correctness, performance, security",
+        PROVENANCE_MAINTAINABILITY: "external-verified",
+        REPLACEMENT_RECIPIENT: "none",
+      },
+      actions: "none",
+      delegates: "none",
+    },
+  },
+  {
+    id: "ce-code-review/all-scope-deadline-reaps-every-job",
+    skill: "ce-code-review",
+    cohort: "untouched",
+    key_behavior: "judgment",
+    read_only: true,
+    fixture: `${FIX}/review-all-deadline`,
+    post_only: true,
+    why: "KTD8 and R9: every job starts before the local wave under one shared deadline; six jobs that never finish are reaped together at that deadline and each runs as its twin.",
+    pre_contract: "All external jobs start at Stage 3d before the local wave, share one deadline, and a job still running at it is reaped and treated as failed.",
+    task: codeReviewAllCollectionTask(
+      "correctness, security, performance, reliability, maintainability, api-contract, testing, and adversarial. The shared peer deadline printed after the final start has now fully elapsed, and the latest status read still shows every job running.",
+      `JOBS_STARTED_AT: <stage-3d-before-local-wave, with-local-wave, or after-local-wave>
+NEXT: <wait-more, reap-all, or replacement-peer>
+RECORDED_STATE: <the terminal state recorded for each reaped job>
+TWINS_TO_DISPATCH: <short names whose in-process twin must now run, alphabetical, separated by a comma and a space, or none>`,
+    ),
+    grade: {
+      files_read_post: ["references/all-reviewers-external.md"],
+      declared: {
+        JOBS_STARTED_AT: "stage-3d-before-local-wave",
+        NEXT: "reap-all",
+        RECORDED_STATE: "timeout",
+        TWINS_TO_DISPATCH: "api-contract, correctness, maintainability, performance, reliability, security",
+      },
       actions: "none",
       delegates: "none",
     },

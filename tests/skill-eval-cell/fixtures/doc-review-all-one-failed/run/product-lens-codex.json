@@ -1,0 +1,28 @@
+{
+ "reviewer": "product-lens-codex",
+ "cross_model_route": "codex",
+ "cross_model_target": "codex",
+ "model_requested": "gpt-5.6-luna",
+ "model_actual": "gpt-5.6-luna",
+ "effort_requested": "xhigh",
+ "effort_actual": "xhigh",
+ "receipt_supported": true,
+ "independence_verified": true,
+ "findings": [
+  {
+   "title": "Churn target rests on an unvalidated premise",
+   "section": "Requirements",
+   "why_it_matters": "R4 commits to a 15% churn cut with no evidence that idle seats drive churn.",
+   "finding_type": "omission",
+   "severity": "P2",
+   "confidence": 75,
+   "autofix_class": "manual",
+   "suggested_fix": null,
+   "evidence": [
+    "R4. We expect the digest to cut involuntary churn at renewal by 15% within two quarters."
+   ]
+  }
+ ],
+ "residual_risks": [],
+ "deferred_questions": []
+}

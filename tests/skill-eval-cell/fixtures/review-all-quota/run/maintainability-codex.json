@@ -1,0 +1,32 @@
+{
+ "reviewer": "maintainability-codex",
+ "cross_model_route": "codex",
+ "cross_model_target": "codex",
+ "model_requested": "gpt-5.6-luna",
+ "model_actual": "unverified",
+ "effort_requested": "xhigh",
+ "effort_actual": "unverified",
+ "receipt_supported": false,
+ "independence_verified": true,
+ "findings": [
+  {
+   "title": "Silent clamp of amountCents hides caller errors",
+   "severity": "P2",
+   "file": "src/refund.ts",
+   "line": 6,
+   "confidence": 75,
+   "autofix_class": "manual",
+   "owner": "downstream-resolver",
+   "requires_verification": true,
+   "pre_existing": false,
+   "suggested_fix": "Reject amounts above the refundable remainder.",
+   "first_evidence": "src/refund.ts:6 -- if (amountCents > order.totalCents) amountCents = order.totalCents",
+   "why_it_matters": "Repeated refunds can exceed the order total.",
+   "evidence": [
+    "src/refund.ts:6"
+   ]
+  }
+ ],
+ "residual_risks": [],
+ "testing_gaps": []
+}
