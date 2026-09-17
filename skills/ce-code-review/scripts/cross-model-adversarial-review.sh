@@ -558,8 +558,6 @@ ESTIMATED_DIFF_TOKENS=$(( (DIFF_BYTES + 1) / 2 ))
     REVIEW_MAP_LABEL="ADVERSARIAL REVIEW MAP"
   else
     [ -s "$REVIEW_BRIEF" ] || skip "host review brief for $REVIEWER_NAME missing; skipping before provider egress"
-    REVIEW_BRIEF_BYTES="$(wc -c < "$REVIEW_BRIEF" 2>/dev/null || echo 0)"
-    [ "$REVIEW_BRIEF_BYTES" -le 32768 ] || skip "host review brief for $REVIEWER_NAME is ${REVIEW_BRIEF_BYTES} bytes (limit 32768); skipping before provider egress"
   fi
   if [ -s "$REVIEW_BRIEF" ]; then
     REVIEW_BRIEF_BYTES="$(wc -c < "$REVIEW_BRIEF" 2>/dev/null || echo 0)"
@@ -570,6 +568,8 @@ ESTIMATED_DIFF_TOKENS=$(( (DIFF_BYTES + 1) / 2 ))
       printf '\n=== BEGIN %s %s ===\n' "$REVIEW_MAP_LABEL" "$REVIEW_MAP_MARK"
       cat "$REVIEW_BRIEF"
       printf '\n=== END %s %s ===\n' "$REVIEW_MAP_LABEL" "$REVIEW_MAP_MARK"
+    elif [ "$REVIEWER_NAME" != adversarial ]; then
+      skip "host review brief for $REVIEWER_NAME is ${REVIEW_BRIEF_BYTES} bytes (limit 32768); skipping before provider egress"
     else
       log "orchestrator review brief is ${REVIEW_BRIEF_BYTES} bytes (limit 32768)"
     fi

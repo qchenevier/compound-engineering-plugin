@@ -151,11 +151,8 @@ def artifact_bytes(run_dir: Path) -> int:
 
 def peer_usage(run_dir: Path) -> dict[str, object] | None:
     for path in sorted(run_dir.glob("adversarial-*-usage.json")):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if isinstance(data, dict):
+        data = read_usage(path)
+        if data is not None:
             provider = path.name[len("adversarial-"):-len("-usage.json")]
             return {"provider": provider, **data}
     return None
@@ -170,11 +167,8 @@ def read_usage(path: Path) -> dict[str, object] | None:
 
 
 def recorded_peers(run_dir: Path) -> list[object] | None:
-    try:
-        data = json.loads((run_dir / FINISH_INPUT_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    peers = data.get("peers") if isinstance(data, dict) else None
+    data = read_usage(run_dir / FINISH_INPUT_FILE)
+    peers = data.get("peers") if data is not None else None
     return peers if isinstance(peers, list) else None
 
 

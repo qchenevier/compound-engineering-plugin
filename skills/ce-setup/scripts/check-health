@@ -374,6 +374,7 @@ work_engine_preferences_note=""
 work_engine_preferences_note_level="detail"
 work_engine_migration_note=""
 review_scope_lines=()
+review_scope_levels=()
 docs_root_status="skip"
 docs_root_value=""
 docs_root_source=""
@@ -530,9 +531,11 @@ if [ "$in_repo" = "yes" ]; then
       cross_model_code_review_scope) review_scope_label="Cross-model code review scope" ;;
       *) review_scope_label="Cross-model doc review scope" ;;
     esac
-    review_scope_lines+=("ok|${review_scope_label}: ${review_scope_value} (${review_scope_detail})")
+    review_scope_lines+=("${review_scope_label}: ${review_scope_value} (${review_scope_detail})")
+    review_scope_levels+=("ok")
     for review_scope_warning in "${review_scope_warnings[@]}"; do
-      review_scope_lines+=("warn|${review_scope_warning}")
+      review_scope_lines+=("$review_scope_warning")
+      review_scope_levels+=("warn")
       project_issues=$((project_issues + 1))
     done
   done
@@ -661,11 +664,14 @@ if [ "$in_repo" = "yes" ]; then
     warn "CE Work implementation engine: ${work_engine_detail}"
   fi
   [ -n "$work_engine_migration_note" ] && warn "$work_engine_migration_note"
-  for review_scope_line in "${review_scope_lines[@]}"; do
-    case "$review_scope_line" in
-      ok\|*) ok "${review_scope_line#ok|}" ;;
-      warn\|*) warn "${review_scope_line#warn|}" ;;
-    esac
+  review_scope_index=0
+  while [ "$review_scope_index" -lt "${#review_scope_lines[@]}" ]; do
+    if [ "${review_scope_levels[$review_scope_index]}" = "warn" ]; then
+      warn "${review_scope_lines[$review_scope_index]}"
+    else
+      ok "${review_scope_lines[$review_scope_index]}"
+    fi
+    review_scope_index=$((review_scope_index + 1))
   done
 
   if [ "$example_cfg" = "ok" ]; then
