@@ -87,20 +87,23 @@ resolve_real_best_effort() {
 }
 
 # Resolve docs_root from tracked config.yaml only. A docs_root in
-# config.local.yaml is ignored. Unset -> default root `docs`. A configured
+# config.local.yaml or the home config is ignored. Unset -> default root `docs`. A configured
 # value is validated and rejected (never silently defaulted) when it is
 # absolute, escapes the repository via path or symlink, resolves to the repo
 # root or inside .git/, or names an existing non-directory. Sets
 # docs_root_status (default|configured|invalid), docs_root_value,
-# docs_root_source, docs_root_error, and docs_root_local_ignored.
+# docs_root_source, docs_root_error, docs_root_local_ignored, and
+# docs_root_home_ignored.
 resolve_docs_root() {
   local repo_root="$1"
+  local home_cfg="$2"
   local local_cfg="$repo_root/.compound-engineering/config.local.yaml"
   local tracked_cfg="$repo_root/.compound-engineering/config.yaml"
-  local value="" source="" repo_real real local_docs probe
+  local value="" source="" repo_real real local_docs home_docs probe
 
   docs_root_error=""
   docs_root_local_ignored=""
+  docs_root_home_ignored=""
   if [ -f "$local_cfg" ]; then
     local_docs=$(read_flat_config_value "$local_cfg" "docs_root")
     [ -n "$local_docs" ] && docs_root_local_ignored="$local_docs"
@@ -108,6 +111,10 @@ resolve_docs_root() {
   if [ -f "$tracked_cfg" ]; then
     value=$(read_flat_config_value "$tracked_cfg" "docs_root")
     [ -n "$value" ] && source="config.yaml"
+  fi
+  if [ -n "$home_cfg" ]; then
+    home_docs=$(read_flat_config_value "$home_cfg" "docs_root")
+    [ -n "$home_docs" ] && docs_root_home_ignored="$home_docs"
   fi
 
   if [ -z "$value" ]; then
@@ -166,45 +173,42 @@ has_flat_config_key() {
 }
 
 # First non-empty ordinary scalar across the configured layers. Empty/commented
-# values continue to the next layer. Sets ordinary_value and ordinary_source.
+# values continue to the next layer. Sets ordinary_value, ordinary_source, and
+# ordinary_layer_index.
 resolve_ordinary_scalar() {
-  local local_file="$1"
-  local tracked_file="$2"
-  local config_key="$3"
-  local value=""
+  local config_key="$1"
+  local config_file value layer_index
   ordinary_value=""
   ordinary_source=""
-  if [ -f "$local_file" ]; then
-    value=$(read_flat_config_value "$local_file" "$config_key")
+  ordinary_layer_index=-1
+  for ((layer_index = 0; layer_index < ${#ordinary_config_paths[@]}; layer_index++)); do
+    config_file="${ordinary_config_paths[$layer_index]}"
+    [ -f "$config_file" ] || continue
+    value=$(read_flat_config_value "$config_file" "$config_key")
     if [ -n "$value" ]; then
       ordinary_value="$value"
-      ordinary_source="config.local.yaml"
+      ordinary_source="${ordinary_config_labels[$layer_index]}"
+      ordinary_layer_index=$layer_index
       return
     fi
-  fi
-  if [ -f "$tracked_file" ]; then
-    value=$(read_flat_config_value "$tracked_file" "$config_key")
-    if [ -n "$value" ]; then
-      ordinary_value="$value"
-      ordinary_source="config.yaml"
-    fi
-  fi
+  done
 }
 
 # Present list/map key (including `[]`) wins that layer. Sets
-# structured_file, or empty when neither layer sets the key.
+# structured_file and structured_source, or empty when no layer sets the key.
 resolve_structured_layer() {
-  local local_file="$1"
-  local tracked_file="$2"
-  local config_key="$3"
+  local config_key="$1"
+  local config_file layer_index
   structured_file=""
-  if [ -f "$local_file" ] && has_flat_config_key "$local_file" "$config_key"; then
-    structured_file="$local_file"
-    return
-  fi
-  if [ -f "$tracked_file" ] && has_flat_config_key "$tracked_file" "$config_key"; then
-    structured_file="$tracked_file"
-  fi
+  structured_source=""
+  for ((layer_index = 0; layer_index < ${#ordinary_config_paths[@]}; layer_index++)); do
+    config_file="${ordinary_config_paths[$layer_index]}"
+    if [ -f "$config_file" ] && has_flat_config_key "$config_file" "$config_key"; then
+      structured_file="$config_file"
+      structured_source="${ordinary_config_labels[$layer_index]}"
+      return
+    fi
+  done
 }
 
 # Read the narrow YAML sequence used by work_engine_preferences. The local
@@ -328,7 +332,7 @@ for entry in "${deps[@]}"; do
 done
 
 # =====================================================
-#  Project checks (repo only)
+#  Config checks
 # =====================================================
 
 legacy_cfg="skip"
@@ -337,8 +341,12 @@ scratch_gitignore="skip"
 local_cfg="skip"
 example_cfg="skip"
 retired_keys=()
+retired_key_sources=()
+retired_key_project_issues=()
 work_engine_cfg="skip"
 work_engine_detail=""
+work_engine_mode_source=""
+work_engine_mode_invalid_note=""
 work_engine_preferences_note=""
 work_engine_preferences_note_level="detail"
 work_engine_migration_note=""
@@ -347,14 +355,41 @@ docs_root_value=""
 docs_root_source=""
 docs_root_error=""
 docs_root_local_ignored=""
+docs_root_home_ignored=""
 tracked_cfg="skip"
 project_issues=0
+ordinary_config_paths=()
+ordinary_config_labels=()
+
+home_config_label="~/.compound-engineering/config.yaml"
+home_config_path=""
+home_config_read_path=""
+home_config_status="absent"
+home_config_skip_reason=""
+if [ -n "${HOME:-}" ]; then
+  home_config_path="${HOME}/.compound-engineering/config.yaml"
+  if [ -f "$home_config_path" ]; then
+    if [ ! -r "$home_config_path" ]; then
+      home_config_status="skipped"
+      home_config_skip_reason="unreadable"
+    elif grep -Eq '^[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:' "$home_config_path" 2>/dev/null || \
+         ! grep -Eq '^[[:space:]]*[^#[:space:]]' "$home_config_path" 2>/dev/null; then
+      home_config_status="present"
+      home_config_read_path="$home_config_path"
+    else
+      home_config_status="skipped"
+      home_config_skip_reason="no readable top-level values"
+    fi
+  fi
+fi
 
 if [ "$in_repo" = "yes" ]; then
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
   local_config_path="$repo_root/.compound-engineering/config.local.yaml"
   tracked_config_path="$repo_root/.compound-engineering/config.yaml"
-  resolve_docs_root "$repo_root"
+  ordinary_config_paths+=("$local_config_path" "$tracked_config_path")
+  ordinary_config_labels+=("config.local.yaml" "config.yaml")
+  resolve_docs_root "$repo_root" "$home_config_read_path"
   [ "$docs_root_status" = "invalid" ] && project_issues=$((project_issues + 1))
   legacy_cfg="missing"
   [ -f "$repo_root/compound-engineering.local.md" ] && legacy_cfg="present"
@@ -379,119 +414,6 @@ if [ "$in_repo" = "yes" ]; then
   tracked_cfg="missing"
   [ -f "$tracked_config_path" ] && tracked_cfg="present"
 
-  resolve_ordinary_scalar "$local_config_path" "$tracked_config_path" "work_engine_mode"
-  work_engine_mode="$ordinary_value"
-  case "$work_engine_mode" in
-    ""|off|prefer|require) ;;
-    *)
-      if [ "$ordinary_source" = "config.local.yaml" ]; then
-        if [ -f "$tracked_config_path" ]; then
-          work_engine_mode=$(read_flat_config_value "$tracked_config_path" "work_engine_mode")
-        else
-          work_engine_mode=""
-        fi
-      fi
-      ;;
-  esac
-
-  resolve_structured_layer "$local_config_path" "$tracked_config_path" "work_engine_preferences"
-  work_engine_preferences_count=0
-  work_engine_preferences_detail=""
-  work_engine_preferences_error=""
-  retired_work_engine_keys=""
-  for retired_key in work_engine_target work_engine_model; do
-    if { [ -f "$local_config_path" ] && has_flat_config_key "$local_config_path" "$retired_key"; } || \
-       { [ -f "$tracked_config_path" ] && has_flat_config_key "$tracked_config_path" "$retired_key"; }; then
-      if [ -n "$retired_work_engine_keys" ]; then
-        retired_work_engine_keys="${retired_work_engine_keys}, ${retired_key}"
-      else
-        retired_work_engine_keys="$retired_key"
-      fi
-    fi
-  done
-  if [ -n "$retired_work_engine_keys" ]; then
-    work_engine_migration_note="retired config key(s) ${retired_work_engine_keys} detected; migrate routing to work_engine_preferences entries with harness and optional model fields, then remove the retired keys"
-    project_issues=$((project_issues + 1))
-  fi
-  if [ -n "$structured_file" ]; then
-    while IFS=$'\t' read -r preference_kind preference_harness preference_model; do
-      case "$preference_kind" in
-        ITEM)
-          work_engine_preferences_count=$((work_engine_preferences_count + 1))
-          case "$preference_harness" in
-            codex|claude|grok|cursor|opencode) ;;
-            *)
-              [ -z "$work_engine_preferences_error" ] && work_engine_preferences_error="invalid harness '$preference_harness' in work_engine_preferences"
-              ;;
-          esac
-          if [ "$preference_model" != "default" ]; then
-            case "$preference_model" in
-              [A-Za-z0-9]*)
-                case "$preference_model" in
-                  *[!A-Za-z0-9._:/-]*)
-                    [ -z "$work_engine_preferences_error" ] && work_engine_preferences_error="invalid model '$preference_model' in work_engine_preferences"
-                    ;;
-                esac
-                ;;
-              *)
-                [ -z "$work_engine_preferences_error" ] && work_engine_preferences_error="invalid model '$preference_model' in work_engine_preferences"
-                ;;
-            esac
-          fi
-          preference_display="${preference_harness}@${preference_model}"
-          if [ -n "$work_engine_preferences_detail" ]; then
-            work_engine_preferences_detail="${work_engine_preferences_detail}, ${preference_display}"
-          else
-            work_engine_preferences_detail="$preference_display"
-          fi
-          ;;
-        ERROR)
-          [ -z "$work_engine_preferences_error" ] && work_engine_preferences_error="$preference_harness"
-          ;;
-      esac
-    done < <(read_work_engine_preferences "$structured_file")
-  fi
-
-  case "$work_engine_mode" in
-    ""|off)
-      work_engine_cfg="native"
-      if [ -n "$work_engine_mode" ]; then
-        work_engine_detail="standing preference is off"
-      else
-        work_engine_detail="setting is commented or missing"
-      fi
-      if [ -n "$work_engine_preferences_error" ]; then
-        work_engine_preferences_note="invalid dormant work_engine_preferences: ${work_engine_preferences_error}"
-        work_engine_preferences_note_level="warn"
-        project_issues=$((project_issues + 1))
-      elif [ "$work_engine_preferences_count" -gt 0 ]; then
-        work_engine_preferences_note="ordered preferences ignored while standing mode is off"
-      fi
-      ;;
-    prefer|require)
-      if [ -n "$work_engine_preferences_error" ]; then
-        work_engine_cfg="unavailable"
-        work_engine_detail="$work_engine_preferences_error"
-        project_issues=$((project_issues + 1))
-      elif [ "$work_engine_preferences_count" -eq 0 ] && [ -n "$retired_work_engine_keys" ]; then
-        work_engine_cfg="unavailable"
-        work_engine_detail="$work_engine_mode cannot use retired scalar routing; migrate ${retired_work_engine_keys} to work_engine_preferences"
-      elif [ "$work_engine_preferences_count" -eq 0 ]; then
-        work_engine_cfg="unavailable"
-        work_engine_detail="$work_engine_mode requires work_engine_preferences"
-        project_issues=$((project_issues + 1))
-      else
-        work_engine_cfg="$work_engine_mode"
-        work_engine_detail="$work_engine_preferences_detail"
-      fi
-      ;;
-    *)
-      work_engine_cfg="invalid"
-      work_engine_detail="invalid mode '$work_engine_mode' ignored; native is the default"
-      project_issues=$((project_issues + 1))
-      ;;
-  esac
-
   script_dir="$(cd "$(dirname "$0")" && pwd)"
   template="$script_dir/../references/config-template.yaml"
   example="$repo_root/.compound-engineering/config.example.yaml"
@@ -502,22 +424,193 @@ if [ "$in_repo" = "yes" ]; then
   else
     example_cfg="ok"
   fi
-
-  # Retired keys set as ACTIVE (non-commented) in either layer. A
-  # commented `# plan_use_fable:` line does not match `^[[:space:]]*<key>:`.
-  for cfg_file in "$local_config_path" "$tracked_config_path"; do
-    [ -f "$cfg_file" ] || continue
-    for key in plan_use_fable brainstorm_use_fable fable_nudge; do
-      if grep -Eq "^[[:space:]]*${key}[[:space:]]*:" "$cfg_file" 2>/dev/null; then
-        already=""
-        for seen in "${retired_keys[@]}"; do
-          [ "$seen" = "$key" ] && already=1
-        done
-        [ -z "$already" ] && retired_keys+=("$key")
-      fi
-    done
-  done
 fi
+
+if [ "$home_config_status" = "present" ]; then
+  ordinary_config_paths+=("$home_config_read_path")
+  ordinary_config_labels+=("$home_config_label")
+fi
+
+# Resolve the ordinary scalar, continuing past invalid values in precedence
+# order. When no later layer supplies a valid value, native execution wins and
+# the last invalid value remains available for a source-specific diagnostic.
+resolve_ordinary_scalar "work_engine_mode"
+work_engine_mode="$ordinary_value"
+work_engine_mode_source="$ordinary_source"
+work_engine_mode_invalid_value=""
+work_engine_mode_invalid_source=""
+case "$work_engine_mode" in
+  ""|off|prefer|require) ;;
+  *)
+    work_engine_mode_invalid_value="$work_engine_mode"
+    work_engine_mode_invalid_source="$work_engine_mode_source"
+    work_engine_mode=""
+    work_engine_mode_source=""
+    for ((layer_index = ordinary_layer_index + 1; layer_index < ${#ordinary_config_paths[@]}; layer_index++)); do
+      cfg_file="${ordinary_config_paths[$layer_index]}"
+      [ -f "$cfg_file" ] || continue
+      candidate=$(read_flat_config_value "$cfg_file" "work_engine_mode")
+      [ -n "$candidate" ] || continue
+      case "$candidate" in
+        off|prefer|require)
+          work_engine_mode="$candidate"
+          work_engine_mode_source="${ordinary_config_labels[$layer_index]}"
+          break
+          ;;
+        *)
+          work_engine_mode_invalid_value="$candidate"
+          work_engine_mode_invalid_source="${ordinary_config_labels[$layer_index]}"
+          ;;
+      esac
+    done
+    if [ -z "$work_engine_mode" ]; then
+      work_engine_mode_invalid_note="Invalid work_engine_mode '${work_engine_mode_invalid_value}' in ${work_engine_mode_invalid_source} ignored; native is the default"
+      if [ "$work_engine_mode_invalid_source" = "config.yaml" ]; then
+        project_issues=$((project_issues + 1))
+      fi
+    fi
+    ;;
+esac
+
+resolve_structured_layer "work_engine_preferences"
+work_engine_preferences_count=0
+work_engine_preferences_detail=""
+work_engine_preferences_error=""
+retired_work_engine_keys=""
+work_engine_migration_sources=""
+work_engine_migration_source_tokens=""
+work_engine_migration_has_repo="no"
+for retired_key in work_engine_target work_engine_model; do
+  retired_key_found="no"
+  for ((layer_index = 0; layer_index < ${#ordinary_config_paths[@]}; layer_index++)); do
+    cfg_file="${ordinary_config_paths[$layer_index]}"
+    if [ -f "$cfg_file" ] && has_flat_config_key "$cfg_file" "$retired_key"; then
+      retired_key_found="yes"
+      layer_label="${ordinary_config_labels[$layer_index]}"
+      case "$work_engine_migration_source_tokens" in
+        *"|${layer_label}|"*) ;;
+        *)
+          work_engine_migration_source_tokens="${work_engine_migration_source_tokens}|${layer_label}|"
+          if [ -n "$work_engine_migration_sources" ]; then
+            work_engine_migration_sources="${work_engine_migration_sources}, ${layer_label}"
+          else
+            work_engine_migration_sources="$layer_label"
+          fi
+          ;;
+      esac
+      [ "$layer_label" != "$home_config_label" ] && work_engine_migration_has_repo="yes"
+    fi
+  done
+  if [ "$retired_key_found" = "yes" ]; then
+    if [ -n "$retired_work_engine_keys" ]; then
+      retired_work_engine_keys="${retired_work_engine_keys}, ${retired_key}"
+    else
+      retired_work_engine_keys="$retired_key"
+    fi
+  fi
+done
+if [ -n "$retired_work_engine_keys" ]; then
+  work_engine_migration_note="retired config key(s) ${retired_work_engine_keys} detected; migrate routing to work_engine_preferences entries with harness and optional model fields, then remove the retired keys (found in ${work_engine_migration_sources})"
+  [ "$work_engine_migration_has_repo" = "yes" ] && project_issues=$((project_issues + 1))
+fi
+
+if [ -n "$structured_file" ]; then
+  while IFS=$'\t' read -r preference_kind preference_harness preference_model; do
+    case "$preference_kind" in
+      ITEM)
+        work_engine_preferences_count=$((work_engine_preferences_count + 1))
+        case "$preference_harness" in
+          codex|claude|grok|cursor|opencode) ;;
+          *)
+            [ -z "$work_engine_preferences_error" ] && work_engine_preferences_error="invalid harness '$preference_harness' in work_engine_preferences"
+            ;;
+        esac
+        if [ "$preference_model" != "default" ]; then
+          case "$preference_model" in
+            [A-Za-z0-9]*)
+              case "$preference_model" in
+                *[!A-Za-z0-9._:/-]*)
+                  [ -z "$work_engine_preferences_error" ] && work_engine_preferences_error="invalid model '$preference_model' in work_engine_preferences"
+                  ;;
+              esac
+              ;;
+            *)
+              [ -z "$work_engine_preferences_error" ] && work_engine_preferences_error="invalid model '$preference_model' in work_engine_preferences"
+              ;;
+          esac
+        fi
+        preference_display="${preference_harness}@${preference_model}"
+        if [ -n "$work_engine_preferences_detail" ]; then
+          work_engine_preferences_detail="${work_engine_preferences_detail}, ${preference_display}"
+        else
+          work_engine_preferences_detail="$preference_display"
+        fi
+        ;;
+      ERROR)
+        [ -z "$work_engine_preferences_error" ] && work_engine_preferences_error="$preference_harness"
+        ;;
+    esac
+  done < <(read_work_engine_preferences "$structured_file")
+fi
+
+case "$work_engine_mode" in
+  ""|off)
+    work_engine_cfg="native"
+    if [ -n "$work_engine_mode" ]; then
+      work_engine_detail="standing preference is off"
+    else
+      work_engine_detail="setting is commented or missing"
+    fi
+    if [ -n "$work_engine_preferences_error" ]; then
+      work_engine_preferences_note="invalid dormant work_engine_preferences: ${work_engine_preferences_error}"
+      work_engine_preferences_note_level="warn"
+      [ "$structured_source" != "$home_config_label" ] && project_issues=$((project_issues + 1))
+    elif [ "$work_engine_preferences_count" -gt 0 ]; then
+      work_engine_preferences_note="ordered preferences ignored while standing mode is off"
+    fi
+    ;;
+  prefer|require)
+    if [ -n "$work_engine_preferences_error" ]; then
+      work_engine_cfg="unavailable"
+      work_engine_detail="$work_engine_preferences_error"
+      [ "$structured_source" != "$home_config_label" ] && project_issues=$((project_issues + 1))
+    elif [ "$work_engine_preferences_count" -eq 0 ] && [ -n "$retired_work_engine_keys" ]; then
+      work_engine_cfg="unavailable"
+      work_engine_detail="$work_engine_mode cannot use retired scalar routing; migrate ${retired_work_engine_keys} to work_engine_preferences"
+    elif [ "$work_engine_preferences_count" -eq 0 ]; then
+      work_engine_cfg="unavailable"
+      work_engine_detail="$work_engine_mode requires work_engine_preferences"
+      [ "$work_engine_mode_source" != "$home_config_label" ] && project_issues=$((project_issues + 1))
+    else
+      work_engine_cfg="$work_engine_mode"
+      work_engine_detail="$work_engine_preferences_detail"
+    fi
+    ;;
+esac
+
+# Retired keys set as ACTIVE (non-commented) in any readable layer. A commented
+# `# plan_use_fable:` line does not match `^[[:space:]]*<key>:`.
+for key in plan_use_fable brainstorm_use_fable fable_nudge; do
+  retired_sources=""
+  retired_has_repo="no"
+  for ((layer_index = 0; layer_index < ${#ordinary_config_paths[@]}; layer_index++)); do
+    cfg_file="${ordinary_config_paths[$layer_index]}"
+    if grep -Eq "^[[:space:]]*${key}[[:space:]]*:" "$cfg_file" 2>/dev/null; then
+      layer_label="${ordinary_config_labels[$layer_index]}"
+      if [ -n "$retired_sources" ]; then
+        retired_sources="${retired_sources}, ${layer_label}"
+      else
+        retired_sources="$layer_label"
+      fi
+      [ "$layer_label" != "$home_config_label" ] && retired_has_repo="yes"
+    fi
+  done
+  if [ -n "$retired_sources" ]; then
+    retired_keys+=("$key")
+    retired_key_sources+=("$retired_sources")
+    retired_key_project_issues+=("$retired_has_repo")
+  fi
+done
 
 # =====================================================
 #  Output
@@ -552,8 +645,15 @@ if [ "$legacy_codex_map" = "yes" ]; then
   detail "Remove it -- see this skill's references/legacy-codex-tool-map.md"
 fi
 
+section "Project config"
+
+case "$home_config_status" in
+  present) ok "Personal config read layer present (${home_config_label})" ;;
+  absent) skip "Personal config read layer absent (${home_config_label})" ;;
+  skipped) skip "Personal config read layer skipped (${home_config_label}): ${home_config_skip_reason}" ;;
+esac
+
 if [ "$in_repo" = "yes" ]; then
-  section "Project config"
 
   if [ "$legacy_cfg" = "present" ]; then
     warn "Obsolete compound-engineering.local.md exists"
@@ -599,6 +699,24 @@ if [ "$in_repo" = "yes" ]; then
     skip "Local docs_root '${docs_root_local_ignored}' is ignored; set docs_root only in config.yaml"
   fi
 
+  if [ "$example_cfg" = "ok" ]; then
+    ok "Example config is current"
+  elif [ "$example_cfg" = "missing" ]; then
+    warn "Example config missing (.compound-engineering/config.example.yaml)"
+    project_issues=$((project_issues + 1))
+  elif [ "$example_cfg" = "outdated" ]; then
+    warn "Example config outdated (new settings available)"
+    project_issues=$((project_issues + 1))
+  fi
+else
+  skip "Not inside a git repository"
+fi
+
+if [ -n "$docs_root_home_ignored" ]; then
+  skip "Home docs_root '${docs_root_home_ignored}' in ${home_config_label} is ignored; set docs_root only in repo config.yaml"
+fi
+
+if [ "$in_repo" = "yes" ] || [ "$home_config_status" != "absent" ]; then
   if [ "$work_engine_cfg" = "native" ]; then
     ok "CE Work implementation engine: native (${work_engine_detail})"
     if [ -n "$work_engine_preferences_note" ]; then
@@ -612,29 +730,25 @@ if [ "$in_repo" = "yes" ]; then
     ok "CE Work implementation engine: ${work_engine_cfg} -> ${work_engine_detail}"
   elif [ "$work_engine_cfg" = "unavailable" ]; then
     warn "CE Work implementation engine unavailable: ${work_engine_detail}"
-  elif [ "$work_engine_cfg" = "invalid" ]; then
-    warn "CE Work implementation engine: ${work_engine_detail}"
   fi
+  [ -n "$work_engine_mode_invalid_note" ] && warn "$work_engine_mode_invalid_note"
+  [ -n "$work_engine_mode_source" ] && detail "work_engine_mode from ${work_engine_mode_source}"
+  [ -n "$structured_source" ] && detail "work_engine_preferences from ${structured_source}"
   [ -n "$work_engine_migration_note" ] && warn "$work_engine_migration_note"
+fi
 
-  if [ "$example_cfg" = "ok" ]; then
-    ok "Example config is current"
-  elif [ "$example_cfg" = "missing" ]; then
-    warn "Example config missing (.compound-engineering/config.example.yaml)"
-    project_issues=$((project_issues + 1))
-  elif [ "$example_cfg" = "outdated" ]; then
-    warn "Example config outdated (new settings available)"
-    project_issues=$((project_issues + 1))
-  fi
+for ((retired_index = 0; retired_index < ${#retired_keys[@]}; retired_index++)); do
+  key="${retired_keys[$retired_index]}"
+  source="${retired_key_sources[$retired_index]}"
+  case "$key" in
+    plan_use_fable)       warn "Retired config key '$key' in ${source} — removed; use 'plan_model' instead" ;;
+    brainstorm_use_fable) warn "Retired config key '$key' in ${source} — removed; use 'brainstorm_model' instead" ;;
+    fable_nudge)          warn "Retired config key '$key' in ${source} — removed; model elevation is always available" ;;
+  esac
+  [ "${retired_key_project_issues[$retired_index]}" = "yes" ] && project_issues=$((project_issues + 1))
+done
 
-  for key in "${retired_keys[@]}"; do
-    case "$key" in
-      plan_use_fable)       warn "Retired config key '$key' — removed; use 'plan_model' instead" ;;
-      brainstorm_use_fable) warn "Retired config key '$key' — removed; use 'brainstorm_model' instead" ;;
-      fable_nudge)          warn "Retired config key '$key' — removed; model elevation is always available" ;;
-    esac
-    project_issues=$((project_issues + 1))
-  done
+if [ "$in_repo" = "yes" ]; then
   # --- Compound Packs (packs: config key) -------------------------------------
   section "Compound Packs"
   packs_python="$(for c in python3 python py; do command -v "$c" >/dev/null 2>&1 && "$c" -c '' >/dev/null 2>&1 && { echo "$c"; break; }; done)"
@@ -709,9 +823,6 @@ for e in errors:
       done < <(printf '%s\n' "$packs_report")
     fi
   fi
-else
-  section "Project config"
-  skip "Not inside a git repository"
 fi
 
 echo ""
