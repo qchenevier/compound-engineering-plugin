@@ -55,16 +55,16 @@ This skill writes pulse reports under `<root>/pulse-reports/`. Resolve `<root>` 
 ## Phase 0: Route by config state
 
 <!-- ce-config-layers:start -->
-**Resolve ordinary CE yaml keys from the two repo files.**
+**Resolve ordinary CE yaml keys by layer.**
 
-- **Read** `<repo-root>/.compound-engineering/config.local.yaml`, then `config.yaml` (`<repo-root>` = `git rev-parse --show-toplevel`). Missing files are skipped. Gitignore does not change resolution.
+- **Read** `<repo-root>/.compound-engineering/config.local.yaml`, then `config.yaml`, then `~/.compound-engineering/config.yaml` (`<repo-root>` = `git rev-parse --show-toplevel`). Missing directories or files and unreadable files are skipped. Gitignore does not change resolution.
 - **Win** with the first active (non-commented) value. For scalars, empty is unset; an invalid value continues to the next layer, then the skill default. For lists and maps, a present key — including an empty list or map — replaces the whole key.
-- **Do not** use this rule for `docs_root` — that key is `config.yaml` only.
+- **Do not** use this rule for `docs_root` (`config.yaml` only) or `packs:` (repo-only).
 <!-- ce-config-layers:end -->
 
 Resolve `<repo-root>` with `git rev-parse --show-toplevel`, then apply the ordinary-key rule above to the `pulse_*` keys. Read `references/config.md` whenever a `pulse_*` value has to be interpreted — it is the key schema and nothing else: each key, its allowed values, and its default, with an unset or invalid value taking the documented default rather than being guessed.
 
-**Routing:** every run passes through Phase 2 (Run the pulse) and then Phase 3 (Scheduling). Run Phase 1 (First-run interview) first when `pulse_product_name` is unset after cascade (the ordinary-key rule above), when the repo root cannot be resolved, or when the argument was `setup`, `reconfigure`, or `edit config`. Otherwise start at Phase 2 (Run the pulse).
+**Routing:** every run passes through Phase 2, then Phase 3. First-run detection checks only the two repo layers, `config.local.yaml` and `config.yaml`; the home layer is read for the value but never counts toward this check. Run Phase 1 first when `pulse_product_name` is unset in both repo layers, when the repo root cannot be resolved, or when the argument was `setup`, `reconfigure`, or `edit config`. Otherwise start at Phase 2.
 
 ## Phase 1: First-run interview
 
@@ -72,7 +72,7 @@ Read `references/setup.md` first; this read is required. It defines the strategy
 
 ## Phase 2: Run the pulse
 
-If Phase 1 (First-run interview) ran, re-apply the ordinary-key rule (local then tracked) from the repo root using the native file-read tool before any query, to pick up edits accepted during the Phase 1 review step. Otherwise use the `pulse_*` values already extracted in Phase 0 (Route by config state), applying the defaults in `references/config.md` for anything unset.
+If Phase 1 (First-run interview) ran, re-apply the ordinary-key rule above using the native file-read tool before any query, to pick up edits accepted during the Phase 1 review step. Otherwise use the `pulse_*` values already extracted in Phase 0 (Route by config state), applying the defaults in `references/config.md` for anything unset.
 
 Then read `references/run.md` before dispatching any query; this read is required. It defines which queries run in parallel and which run serially, the `pulse_db_enabled` check that decides whether database work runs, the optional quality sampling and its scoring discipline, the four report sections, and where the report is written.
 

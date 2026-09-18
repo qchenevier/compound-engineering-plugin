@@ -1,6 +1,6 @@
 # Sweep First-Run Interview
 
-Loaded by `SKILL.md` when `ce-sweep` runs with `feedback_sources` unset in both the local override file and `config.yaml`. It captures the setup that will be merged into `<repo-root>/.compound-engineering/config.local.yaml`, the optional local override file that interviews write to. Later runs re-read those keys from the local file first, then from `config.yaml`.
+Loaded by `SKILL.md` when `ce-sweep` runs with `feedback_sources` unset in both the local override file and `config.yaml`. It captures the setup that will be merged into `<repo-root>/.compound-engineering/config.local.yaml`, the optional local override file that interviews write to. Later runs re-read those keys from repo `config.local.yaml`, then repo `config.yaml`, then `~/.compound-engineering/config.yaml`.
 
 This interview is **interactive only**. The caller refuses first-run setup in non-interactive mode. A scheduled or piped run with no config aborts and tells the user to run `ce-sweep` interactively once. Do not attempt to infer sources, actions, or approvals without asking.
 

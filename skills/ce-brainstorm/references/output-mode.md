@@ -4,7 +4,7 @@
 
 `SKILL.md` states the two rules that must hold even when this file is not read: the mode is exclusive, and markdown is written unless HTML was requested. This file states the precedence that decides the rest — in-prompt request > user-stated preference > config > default (`md`) — and the token-parsing convention.
 
-**Read config.** Resolve `<repo-root>` with `git rev-parse --show-toplevel`, then apply the ordinary-key rule stated in `SKILL.md`. Read both files when they exist. If the root cannot be resolved, fall through to the defaults below.
+**Read config.** Apply the ordinary-key rule stated in `SKILL.md`, reading every available layer it names. If `<repo-root>` cannot be resolved, skip only the repo layers.
 
 Resolution steps:
 
@@ -12,7 +12,7 @@ Resolution steps:
    - `output:` alone (no value) → no-op, fall through to step 2.
    - `output:<unknown>` (e.g., `output:pdf`) → drop the token, fall through to step 2, and remember to emit a one-line note above the post-generation menu after final resolution: `Ignored unknown output: value '<value>' — using <resolved_format> instead.` where `<resolved_format>` is the value `OUTPUT_FORMAT` actually resolved to after the remaining precedence steps. Do not hardcode `md` in the note — that misleads users when config has set HTML.
 2. **User-stated preference.** If this prompt holds no format request, honor an output-format preference (markdown vs HTML) the user established earlier — earlier in this session, in your memory, or written into their active instructions — that is already in your context (match `md`/`html` case-insensitively). A remembered preference is more current than the rarely-edited config, so it **overrides** the config in step 3. Do not open or search instruction files to find it — act only on a preference already present in your context; if none is, fall through to the config.
-3. **Config.** If steps 1-2 did not resolve, apply the ordinary-key rule: first **active (non-commented)** `brainstorm_output:` in `config.local.yaml` then `config.yaml` matching `md` or `html` (case-insensitive) wins. Missing, invalid, or commented values continue to the next layer, then step 4. Critical: lines starting with `#` are YAML comments and must be ignored — the shipped config template includes commented examples like `# brainstorm_output: html` to document the option, and matching those as active settings would silently force HTML mode on every run without the user having opted in.
+3. **Config.** If steps 1-2 did not resolve, apply the ordinary-key rule from `SKILL.md`: the first **active (non-commented)** `brainstorm_output:` matching `md` or `html` (case-insensitively) wins. Missing, invalid, or commented values continue to the next layer, then step 4. Critical: lines starting with `#` are YAML comments and must be ignored — the shipped config template includes commented examples like `# brainstorm_output: html` to document the option, and matching that as an active setting would silently force HTML mode on every run without the user having opted in.
 4. **Default.** Otherwise `OUTPUT_FORMAT=md`.
 
 There is no pipeline override. A headless or non-interactive run resolves the format by the same four steps; if it asked for HTML, or its config or project instructions say HTML, it gets HTML. Downstream skills read either format.

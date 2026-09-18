@@ -165,8 +165,8 @@ has_flat_config_key() {
   ' "$config_file"
 }
 
-# First non-empty ordinary scalar across local then tracked. Empty/commented
-# local continues to tracked. Sets ordinary_value and ordinary_source.
+# First non-empty ordinary scalar across the configured layers. Empty/commented
+# values continue to the next layer. Sets ordinary_value and ordinary_source.
 resolve_ordinary_scalar() {
   local local_file="$1"
   local tracked_file="$2"

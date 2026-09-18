@@ -1,7 +1,7 @@
 # Compound Engineering -- repo config
 # Copy to .compound-engineering/config.yaml in your project root (team defaults).
 # Optional override: .compound-engineering/config.local.yaml, same keys.
-# Ordinary keys: local wins when set, then this file, then the skill default.
+# Ordinary keys: local wins, then this file, then ~/.compound-engineering/config.yaml, then the skill default.
 # docs_root is repo layout -- set it only here; local docs_root is ignored.
 # All settings are optional. Invalid ordinary values continue to the next layer.
 # docs_root fails closed on an unusable value.

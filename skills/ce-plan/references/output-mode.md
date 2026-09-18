@@ -25,7 +25,7 @@ Output mode is **exclusive** — a plan is written as either markdown (`.md`) OR
    - `output:<unknown>` (e.g., `output:pdf`) → drop the token, fall through, and emit a one-line note above the post-generation menu after final resolution: `Ignored unknown output: value '<value>' — using <resolved_format> instead.` Do not hardcode `md` in the note — that misleads users when config has set HTML.
 2. **User-stated preference.** If this prompt holds no format request, honor an output-format preference the user established earlier that is already in your context, matching `md`/`html` case-insensitively. A remembered preference is more current than the rarely-edited config, so it **overrides** the config in step 3. Do not open or search instruction files to find it.
 3. **Config.** Once an artifact-producing route is known, apply the ordinary-key rule below: the first **active (non-commented)** `plan_output:` matching `md` or `html` (case-insensitively) wins. Missing, invalid, or commented values continue to the next layer, then step 4. The shipped template's commented examples are not settings.
-4. **Default.** Otherwise `OUTPUT_FORMAT=md`. If `<repo-root>` cannot be resolved so the config cannot be read, fall through to this default rather than failing.
+4. **Default.** Otherwise `OUTPUT_FORMAT=md`. If `<repo-root>` cannot be resolved, skip only the repo layers; still read the home layer before using this default.
 5. **Pipeline mode and model elevation.** Pipeline mode skips interactive questions but does **not** disable model elevation — `plan_model` config (and a `plan_model:<alias>` token passed by the caller) is still honored (see the model-elevation sub-step below and `references/reasoning-elevation.md`). It does not change the output format.
 
 **Token-parsing convention:** only literal-prefix flag tokens (`output:`, `mode:`, the exact `confirm:auto`/`confirm:ask` forms, `plan_model:<alias>`, `delegate:` where applicable) are consumed and stripped. Other `<word>:<word>` tokens — including commit prefixes like `feat:` and any unrecognized `confirm:<value>` — pass through verbatim into the feature description. A stripped `plan_model:<alias>` token is kept for the Phase 5.2 model-elevation step.
@@ -33,11 +33,11 @@ Output mode is **exclusive** — a plan is written as either markdown (`.md`) OR
 **For an artifact-producing route, load the format-rendering reference only after the value settles:** `references/markdown-rendering.md` when `OUTPUT_FORMAT=md`, `references/html-rendering.md` when `OUTPUT_FORMAT=html`. Section content is the same either way; presentation differs. Both are paired with `references/plan-sections.md`.
 
 <!-- ce-config-layers:start -->
-**Resolve ordinary CE yaml keys from the two repo files.**
+**Resolve ordinary CE yaml keys by layer.**
 
-- **Read** `<repo-root>/.compound-engineering/config.local.yaml`, then `config.yaml` (`<repo-root>` = `git rev-parse --show-toplevel`). Missing files are skipped. Gitignore does not change resolution.
+- **Read** `<repo-root>/.compound-engineering/config.local.yaml`, then `config.yaml`, then `~/.compound-engineering/config.yaml` (`<repo-root>` = `git rev-parse --show-toplevel`). Missing directories or files and unreadable files are skipped. Gitignore does not change resolution.
 - **Win** with the first active (non-commented) value. For scalars, empty is unset; an invalid value continues to the next layer, then the skill default. For lists and maps, a present key — including an empty list or map — replaces the whole key.
-- **Do not** use this rule for `docs_root` — that key is `config.yaml` only.
+- **Do not** use this rule for `docs_root` (`config.yaml` only) or `packs:` (repo-only).
 <!-- ce-config-layers:end -->
 
 Also resolve the immediate `SKIP_SCOPING_CONFIRM` signals here. `confirm:auto` skips the scoping-synthesis confirmation for this run and `confirm:ask` forces it on; honor an equivalent plain-language instruction the same way ("just write it, don't ask me to confirm" skips; "ask me before writing the plan" asks). Only those two literal values are consumed as a flag — any other `confirm:<value>` stays verbatim in the feature description. Then use a preference already in your context. If neither settles the value, defer the first **active (non-commented)** `plan_skip_scoping_confirm:` matching `true` or `false`, then the default of asking, until `references/intake.md` reaches the scoping-confirmation step where the value matters. A route that never reaches that step does not probe config for it.
