@@ -1,6 +1,6 @@
 # Product Pulse First-Run Interview
 
-Loaded from `references/setup.md` at the start of Phase 1. Captures the configuration that will be merged into `.compound-engineering/config.local.yaml` (the optional local override; interviews write here) as `pulse_*` keys. Subsequent runs re-read those keys from the local file first, then from `config.yaml`.
+Loaded from `references/setup.md` at the start of Phase 1. Captures the configuration that will be merged into `.compound-engineering/config.local.yaml` (the optional local override; interviews write here) as `pulse_*` keys. Subsequent runs re-read those keys from repo `config.local.yaml`, then repo `config.yaml`, then `~/.compound-engineering/config.yaml`.
 
 For each section: ask the opening question, evaluate the answer against the quality bar, push back when it falls into a named anti-pattern, and capture the final answer in the user's own language.
 

@@ -2,7 +2,7 @@
 
 Required read before dispatching any query.
 
-Before dispatching, make sure the `pulse_*` values in hand are current: if the interview just ran, re-apply the ordinary-key cascade (local then tracked) so edits accepted during its review step are picked up.
+Before dispatching, make sure the `pulse_*` values in hand are current: if the interview just ran, re-apply the ordinary-key cascade from `SKILL.md` so edits accepted during its review step are picked up.
 
 ## Dispatch
 

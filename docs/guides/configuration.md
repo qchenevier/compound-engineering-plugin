@@ -1,15 +1,31 @@
 # Compound Engineering configuration
 
-Compound Engineering keeps optional repo defaults in `.compound-engineering/config.yaml`. Ordinary keys may also live in `.compound-engineering/config.local.yaml`, which overrides the repo file per key. Both files are visible to every supported harness that opens the same checkout.
+Compound Engineering reads optional defaults from repo-local, repo-tracked, and personal config layers. A repository can commit team defaults in `.compound-engineering/config.yaml`, each checkout can override them in `.compound-engineering/config.local.yaml`, and a person can keep lowest-precedence defaults in `~/.compound-engineering/config.yaml`.
 
-Run `/ce-setup` to create `config.yaml` and refresh the committed `.compound-engineering/config.example.yaml`. Setup does not create `config.local.yaml`. Uncomment only the keys you want to change. Do not put credentials, CLI commands, or harness flags in either file.
+Run `/ce-setup` to create the repo `config.yaml` and refresh the committed `.compound-engineering/config.example.yaml`. Setup does not create `config.local.yaml` or the personal file. Uncomment only the keys you want to change. Do not put credentials, CLI commands, or harness flags in these files.
 
 ## How keys resolve
 
-- **Ordinary keys:** read `config.local.yaml`, then `config.yaml`. The first active (non-commented) value wins. A missing file is skipped. Invalid or empty scalars continue to the next layer, then the skill default. A present list or map, including empty, replaces the whole key.
-- **`docs_root`:** read only from `config.yaml`. A `docs_root` in `config.local.yaml` is ignored.
-- **Gitignore does not change resolution.** Either file works whether ignored or committed.
+- **Ordinary keys:** read repo `.compound-engineering/config.local.yaml`, then repo `.compound-engineering/config.yaml`, then `~/.compound-engineering/config.yaml`. The first active (non-commented) value wins. A missing or unreadable layer is skipped. Invalid or empty scalars continue to the next layer, then the skill default. A present list or map, including empty, replaces the whole key; layers are not deep-merged.
+- **`docs_root`:** read only from repo `config.yaml`. Values in `config.local.yaml` or the personal file are ignored.
+- **`packs`:** read only from the two repo files, whose lists concatenate. A `packs` entry in the personal file is ignored.
+- **Gitignore does not change resolution.** Either repo file works whether ignored or committed.
 - A current-task instruction still wins over config. Session and project instructions already in context can override or narrow it.
+
+## Personal defaults
+
+The personal layer has one fixed path: `~/.compound-engineering/config.yaml`. Here `~` means `$HOME` exactly as the running process sees it; CE does not look up the invoking account through another mechanism. CI jobs, containers, `sudo`, launchd jobs, and daemons therefore use the `HOME` they receive, which is usually not the developer's home. If `HOME` is unset, there is no personal layer and resolution continues through the two repo layers.
+
+CE neither requires nor creates this directory or file, and no skill writes or migrates it. To opt in, create `$HOME/.compound-engineering/` and its `config.yaml` by hand, then add only personal defaults. To migrate personal keys from a repo's `config.local.yaml`, copy those keys into the personal file and delete them from the repo file. A value committed by the team in repo `config.yaml` always wins over the personal value; use `config.local.yaml` when one checkout must override a team value.
+
+A personal value should be meaningful in every repository. In particular:
+
+- `sweep_state_path` is per-repository state and must not be set in the personal home layer. It keys cursors by source ID and items by `<source-id>:<item-id>`, so repositories sharing one state file collide: one can consume another's cursor and lifecycle state.
+- Per-project identity or routing belongs in repo config. This includes `feedback_sources`, `pulse_*` identity keys such as `pulse_product_name`, and `ce_promote_spiral_optout` (which controls the offer for this project).
+
+First-run detection for `/ce-product-pulse` and `/ce-sweep` deliberately checks only repo `config.local.yaml` and repo `config.yaml`. A home-only `pulse_product_name` or `feedback_sources` never suppresses their first-run interview, even though later ordinary-value reads use all three layers. Such a home value therefore does not provide a durable shortcut: the interview repeats in every repo without its own value. This carve-out does not protect other repo-specific keys: `sweep_state_path` and `ce_promote_spiral_optout` resolve from the personal file like ordinary values, and promote's setup offer has no equivalent repo-only check.
+
+`/ce-setup` reports whether the personal layer is present, absent, or skipped. Its health check labels sources for the ordinary keys it actually resolves: `work_engine_mode`, `work_engine_preferences`, retired keys, and the `work_engine_target`/`work_engine_model` migration scan. It also resolves `docs_root` from repo `config.yaml` and reports a personal `docs_root` as ignored. It does not resolve `plan_model`, `brainstorm_model`, `cross_model_peer`, `cross_model_review_mode`, `plan_output`, `brainstorm_output`, or `ideate_output`; their absence from the health report is not proof that the personal file cannot supply them.
 
 ## Artifact root
 
@@ -42,7 +58,7 @@ packs:
 
 Entry fields: `source` (required — repo-relative path, `~`/absolute path, or git URL), `ref` (git only, required; a full commit sha reproduces exactly, a tag reproduces until upstream force-moves it, and a branch freezes at its cached resolution per machine and can drift — the `/ce-setup` health check notes when a cached tag or branch no longer matches upstream), `path` (git only — scope the source to a subfolder; a pasted GitHub `…/tree/<ref>/<sub>` URL sets `ref` and `path` itself), `pack` (select one id or a list; omit to install everything the source publishes), and `id` (rename a single-pack entry).
 
-The lists from `config.yaml` and `config.local.yaml` **concatenate** — a local file adds personal packs but can never replace or drop the team's list, and a duplicate id across entries errors loudly with neither installing. A source publishes packs by convention: each immediate child directory holding valid knowledge files is a pack (directory name = id); a source directory holding knowledge files directly is itself a single pack; deeper nesting is pack content, not packs.
+The lists from repo `config.yaml` and `config.local.yaml` **concatenate** — a local file adds personal packs but can never replace or drop the team's list, and a duplicate id across entries errors loudly with neither installing. The personal config's `packs` key is ignored; declare a personal pack in either repo file and give its entry a `~/`-rooted `source`. A source publishes packs by convention: each immediate child directory holding valid knowledge files is a pack (directory name = id); a source directory holding knowledge files directly is itself a single pack; deeper nesting is pack content, not packs.
 
 Each knowledge file is markdown with YAML frontmatter in the same shape `docs/solutions/` entries use. `title` and `applies_when` are required; `tags` helps matching.
 
@@ -81,7 +97,7 @@ Config is a default, not another agent-instructions file:
 - Each skill's runtime contract still decides whether a setting applies. For example, model elevation takes effect on whichever harness can reach the requested model.
 - Some skills define a more specific preference order for their own routing. Their skill page documents that order.
 
-Committed `config.yaml` is shared across worktrees of the same project. `config.local.yaml` is per-checkout. CE Work resolves delegation before it creates detached worker worktrees, so an already-selected route is carried into that run.
+Committed `config.yaml` is shared across worktrees of the same project. `config.local.yaml` is per-checkout. The personal file is shared across repositories seen by the same `$HOME`. CE Work resolves delegation before it creates detached worker worktrees, so an already-selected route is carried into that run.
 
 ## Options
 
@@ -127,7 +143,7 @@ Current-task wording can select a different route for one run without editing co
 
 ## Safe maintenance
 
-- Commit `config.yaml` when you want team defaults. Keep `config.local.yaml` out of git if it holds personal or checkout-only choices (`/ce-setup` can add `.compound-engineering/*.local.yaml`).
+- Commit `config.yaml` when you want team defaults. Keep `config.local.yaml` out of git if it holds checkout-only choices (`/ce-setup` can add `.compound-engineering/*.local.yaml`). Put machine-wide personal defaults in the manually managed home file.
 - Put durable team-wide *instructions* in the project's normal agent-instructions mechanism. Team *defaults* for CE keys may live in `config.yaml`.
 - Prefer per-run instructions for one-off choices.
 - Re-run `/ce-setup` after plugin upgrades to refresh the committed example and diagnose retired or malformed settings.

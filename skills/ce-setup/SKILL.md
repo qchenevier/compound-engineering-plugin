@@ -56,7 +56,7 @@ Use the same command without `--version VERSION` if Step 1 could not determine a
 
 If the script is unavailable, run the inline equivalent listed in `references/repo-fixes.md`.
 
-Display the diagnostic output to the user. Missing optional tools are not setup failures. The health report includes the resolved artifact root and which config layer supplied it (per Artifact Root Resolution above); show that line so the operator can confirm where CE artifacts will be written. Missing `config.yaml` is a reported absence, not a project issue.
+Display the diagnostic output, including the artifact root and its config source. Missing optional tools are not setup failures. The report names all three read layers: repo local, repo tracked, and `~/.compound-engineering/config.yaml`; personal absence is not a project issue. Setup never creates or writes that personal file. Its create offer remains scoped to repo `config.yaml`.
 
 ### Step 3: Decide Whether Fixes Are Needed
 
@@ -75,7 +75,7 @@ Also remediate these project issues when the report names them:
 - obsolete `compound-engineering.local.md`
 - `.compound-engineering/config.local.yaml` exists but is not safely gitignored
 - `.compound-engineering/config.example.yaml` is missing or outdated
-- the health report marks the `ce-work` skill implementation engine unavailable or invalid, detects retired scalar routing keys, or reports malformed dormant `work_engine_preferences`
+- a repo layer makes the `ce-work` implementation engine unavailable or invalid, supplies retired scalar routing keys, or has malformed dormant `work_engine_preferences`; report personal-only findings with manual correction instructions
 - the health report marks `docs_root` invalid (`Invalid docs_root ...`) — CE artifacts will not be written until it is fixed
 
 If optional tools are missing, do not offer a bulk install. The diagnostic already printed the relevant install command or project URL. Say: "Install optional tools only for the workflows you use."
