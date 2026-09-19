@@ -75,7 +75,7 @@ Also remediate these project issues when the report names them:
 - obsolete `compound-engineering.local.md`
 - `.compound-engineering/config.local.yaml` exists but is not safely gitignored
 - `.compound-engineering/config.example.yaml` is missing or outdated
-- the health report marks the `ce-work` skill implementation engine unavailable or invalid, detects retired scalar routing keys, or reports malformed dormant `work_engine_preferences`
+- a repo layer makes the `ce-work` implementation engine unavailable or invalid, supplies retired scalar routing keys, or has malformed dormant `work_engine_preferences`; report personal-only findings with manual correction instructions
 - the health report marks `docs_root` invalid (`Invalid docs_root ...`) — CE artifacts will not be written until it is fixed
 
 If optional tools are missing, do not offer a bulk install. The diagnostic already printed the relevant install command or project URL. Say: "Install optional tools only for the workflows you use."

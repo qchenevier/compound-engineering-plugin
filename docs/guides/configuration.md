@@ -20,7 +20,7 @@ CE neither requires nor creates this directory or file, and no skill writes or m
 
 A personal value should be meaningful in every repository. In particular:
 
-- Repo-relative paths such as `sweep_state_path` point somewhere different in every checkout; the only sensible machine-wide `sweep_state_path` is an absolute path under `/tmp`.
+- `sweep_state_path` is per-repository state and must not be set in the personal home layer. It keys cursors by source ID and items by `<source-id>:<item-id>`, so repositories sharing one state file collide: one can consume another's cursor and lifecycle state.
 - Per-project identity or routing belongs in repo config. This includes `feedback_sources`, `pulse_*` identity keys such as `pulse_product_name`, and `ce_promote_spiral_optout` (which controls the offer for this project).
 
 First-run detection for `/ce-product-pulse` and `/ce-sweep` deliberately checks only repo `config.local.yaml` and repo `config.yaml`. A home-only `pulse_product_name` or `feedback_sources` never suppresses their first-run interview, even though later ordinary-value reads use all three layers. Such a home value therefore does not provide a durable shortcut: the interview repeats in every repo without its own value. This carve-out does not protect other repo-specific keys: `sweep_state_path` and `ce_promote_spiral_optout` resolve from the personal file like ordinary values, and promote's setup offer has no equivalent repo-only check.

@@ -497,7 +497,10 @@ describe("ce-setup check-health", () => {
 
       expect(result.exitCode).toBe(0)
       expect(result.stdout).toContain("CE Work implementation engine: native (setting is commented or missing")
-      expect(result.stdout).not.toContain("invalid mode 'sometimes'")
+      expect(result.stdout).toContain(
+        "Invalid work_engine_mode 'sometimes' in config.local.yaml ignored; native is the default",
+      )
+      expect(result.stdout).toContain("1 project issue(s) found")
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -943,9 +946,68 @@ describe("ce-setup check-health personal config layer", () => {
       expect(result.stdout).toContain(
         "Invalid work_engine_mode 'everything' in ~/.compound-engineering/config.yaml ignored; native is the default",
       )
+      expect(result.stdout).toContain("Project config healthy")
       expect(result.stdout).not.toContain("project issue(s) found")
     } finally {
       await cleanup(root, home)
+    }
+  })
+
+  test("invalid tracked and home modes still count as a project issue", async () => {
+    const { root, home } = await repoAndHome()
+    try {
+      await writeFile(path.join(root, ".compound-engineering", "config.yaml"), "work_engine_mode: sometimes\n")
+      await writeHomeConfig(home, "work_engine_mode: everything\n")
+
+      const result = await runWithHome(root, home)
+
+      expect(result.stdout).toContain(
+        "Invalid work_engine_mode 'everything' in ~/.compound-engineering/config.yaml ignored; native is the default",
+      )
+      expect(result.stdout).toContain("1 project issue(s) found")
+    } finally {
+      await cleanup(root, home)
+    }
+  })
+
+  test("home-sourced enabled mode without preferences is unavailable but not a project issue", async () => {
+    const { root, home } = await repoAndHome()
+    try {
+      await writeHomeConfig(home, "work_engine_mode: prefer\n")
+
+      const result = await runWithHome(root, home)
+
+      expect(result.stdout).toContain(
+        "CE Work implementation engine unavailable: prefer requires work_engine_preferences",
+      )
+      expect(result.stdout).toContain("Project config healthy")
+      expect(result.stdout).not.toContain("project issue(s) found")
+    } finally {
+      await cleanup(root, home)
+    }
+  })
+
+  test("does not add the personal layer when it resolves to repo config.yaml", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "ce-setup-home-collision-"))
+    try {
+      await initGitRepo(root)
+      await mkdir(path.join(root, ".compound-engineering"), { recursive: true })
+      await copyFile(configTemplate, path.join(root, ".compound-engineering", "config.example.yaml"))
+      await writeFile(
+        path.join(root, ".compound-engineering", "config.yaml"),
+        "work_engine_mode: prefer\nwork_engine_preferences:\n  - harness: claude\n",
+      )
+
+      const result = await runWithHome(root, root)
+
+      expect(result.stdout).toContain(
+        "Personal config read layer skipped (~/.compound-engineering/config.yaml): path resolves to repo .compound-engineering/config.yaml; using the repo layer only",
+      )
+      expect(result.stdout).toContain("CE Work implementation engine: prefer -> claude@default")
+      expect(result.stdout).toContain("work_engine_mode from config.yaml")
+      expect(result.stdout).toContain("work_engine_preferences from config.yaml")
+    } finally {
+      await rm(root, { recursive: true, force: true })
     }
   })
 

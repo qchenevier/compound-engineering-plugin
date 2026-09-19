@@ -387,6 +387,15 @@ if [ "$in_repo" = "yes" ]; then
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
   local_config_path="$repo_root/.compound-engineering/config.local.yaml"
   tracked_config_path="$repo_root/.compound-engineering/config.yaml"
+  if [ -n "$home_config_path" ]; then
+    home_config_resolved=$(resolve_real_best_effort "$home_config_path")
+    tracked_config_resolved=$(resolve_real_best_effort "$tracked_config_path")
+    if [ -n "$home_config_resolved" ] && [ "$home_config_resolved" = "$tracked_config_resolved" ]; then
+      home_config_status="skipped"
+      home_config_skip_reason="path resolves to repo .compound-engineering/config.yaml; using the repo layer only"
+      home_config_read_path=""
+    fi
+  fi
   ordinary_config_paths+=("$local_config_path" "$tracked_config_path")
   ordinary_config_labels+=("config.local.yaml" "config.yaml")
   resolve_docs_root "$repo_root" "$home_config_read_path"
@@ -439,11 +448,13 @@ work_engine_mode="$ordinary_value"
 work_engine_mode_source="$ordinary_source"
 work_engine_mode_invalid_value=""
 work_engine_mode_invalid_source=""
+work_engine_mode_repo_invalid="no"
 case "$work_engine_mode" in
   ""|off|prefer|require) ;;
   *)
     work_engine_mode_invalid_value="$work_engine_mode"
     work_engine_mode_invalid_source="$work_engine_mode_source"
+    [ "$work_engine_mode_invalid_source" != "$home_config_label" ] && work_engine_mode_repo_invalid="yes"
     work_engine_mode=""
     work_engine_mode_source=""
     for ((layer_index = ordinary_layer_index + 1; layer_index < ${#ordinary_config_paths[@]}; layer_index++)); do
@@ -460,12 +471,13 @@ case "$work_engine_mode" in
         *)
           work_engine_mode_invalid_value="$candidate"
           work_engine_mode_invalid_source="${ordinary_config_labels[$layer_index]}"
+          [ "$work_engine_mode_invalid_source" != "$home_config_label" ] && work_engine_mode_repo_invalid="yes"
           ;;
       esac
     done
     if [ -z "$work_engine_mode" ]; then
       work_engine_mode_invalid_note="Invalid work_engine_mode '${work_engine_mode_invalid_value}' in ${work_engine_mode_invalid_source} ignored; native is the default"
-      if [ "$work_engine_mode_invalid_source" = "config.yaml" ]; then
+      if [ "$work_engine_mode_repo_invalid" = "yes" ]; then
         project_issues=$((project_issues + 1))
       fi
     fi
