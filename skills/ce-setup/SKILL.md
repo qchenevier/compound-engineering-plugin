@@ -56,7 +56,7 @@ Use the same command without `--version VERSION` if Step 1 could not determine a
 
 If the script is unavailable, run the inline equivalent listed in `references/repo-fixes.md`.
 
-Display the diagnostic output to the user. Missing optional tools are not setup failures. The health report includes the resolved artifact root and which config layer supplied it (per Artifact Root Resolution above); show that line so the operator can confirm where CE artifacts will be written. Missing `config.yaml` is a reported absence, not a project issue.
+Display the diagnostic output, including the artifact root and its config source. Missing optional tools are not setup failures. The report names all three read layers: repo local, repo tracked, and `~/.compound-engineering/config.yaml`; personal absence is not a project issue. Setup never creates or writes that personal file. Its create offer remains scoped to repo `config.yaml`.
 
 ### Step 3: Decide Whether Fixes Are Needed
 

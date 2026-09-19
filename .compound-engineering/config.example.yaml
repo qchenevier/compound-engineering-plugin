@@ -1,8 +1,11 @@
 # Compound Engineering -- repo config
 # Copy to .compound-engineering/config.yaml in your project root (team defaults).
-# Optional override: .compound-engineering/config.local.yaml, same keys.
-# Ordinary keys: local wins when set, then this file, then the skill default.
-# docs_root is repo layout -- set it only here; local docs_root is ignored.
+# Per-checkout override: .compound-engineering/config.local.yaml, same keys.
+# Personal defaults: ~/.compound-engineering/config.yaml. CE reads this lowest
+# layer but never creates or writes it.
+# Ordinary keys: local wins, then this file, then ~/.compound-engineering/config.yaml, then the skill default.
+# docs_root is repo layout -- set it only here; other layers are ignored.
+# packs is repo-only: this file and config.local.yaml concatenate; home is ignored.
 # All settings are optional. Invalid ordinary values continue to the next layer.
 # docs_root fails closed on an unusable value.
 
@@ -80,7 +83,7 @@
 # the single gate: off disables judgment, the section, the /ce-explain offer,
 # and archival. Archival additionally writes the explainer to docs/explainers/
 # and links it from the PR (full-workflow runs only; override per run with
-# archive:on|off). Ordinary cascade: local, then this file, then the skill default.
+# archive:on|off). Ordinary cascade: local, then this file, then home, then the skill default.
 
 # pr_teaching_section: false     # true | false (default: true)
 # pr_teaching_archive: true      # true | false (default: false; full-workflow runs only)
@@ -181,7 +184,8 @@
 # Declared, never scanned: an entry names a source (repo-relative path,
 # ~/absolute path, or git URL) and what to install from it. Lists from this
 # file and config.local.yaml concatenate -- local adds packs, never replaces
-# the team's. Git sources require ref (tag or sha reproduce exactly; a branch
+# the team's. The home config's packs are ignored. Git sources require ref (tag
+# or sha reproduce exactly; a branch
 # freezes at its cached resolution and can drift across machines). path: and
 # pasted GitHub /tree/<ref>/<sub> URLs scope a source to a subfolder.
 # pack: picks one id or a list; omit it to install everything the source

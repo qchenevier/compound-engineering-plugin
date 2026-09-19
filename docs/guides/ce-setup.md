@@ -2,9 +2,9 @@
 
 > Check Compound Engineering health, optional tool availability, and repo-local config safety. It does not bulk-install the plugin's dependencies.
 
-`ce-setup` is a diagnosis and config utility. It reports which optional tools are on PATH, refreshes the committed config example, creates the repo `config.yaml` if you approve, offers to gitignore a local override or CE scratch space, and offers to point your agent-instructions file at the knowledge store and add standing compounding and `ce-noslop` chat-register instructions. It also reports where CE artifacts will land and can repair an invalid `docs_root` or a broken CE Work engine block.
+`ce-setup` is a diagnosis and config utility. It reports which optional tools are on PATH, reports the two repo config layers and the personal `~/.compound-engineering/config.yaml` read layer, refreshes the committed config example, creates the repo `config.yaml` if you approve, offers to gitignore a local override or CE scratch space, and offers to point your agent-instructions file at the knowledge store and add standing compounding and `ce-noslop` chat-register instructions. It also reports where CE artifacts will land and can repair an invalid `docs_root` or a broken CE Work engine block.
 
-It runs only when you invoke it explicitly (`disable-model-invocation: true`). Talking about setup does not start it. Outside a git repository it reports capabilities and stops without writing files.
+It runs only when you invoke it explicitly (`disable-model-invocation: true`). Talking about setup does not start it. Outside a git repository it reports capabilities and the personal read layer, then stops without writing files.
 
 See [Compound Engineering configuration](./configuration.md) for every option and how local defaults interact with session and project instructions.
 
@@ -14,10 +14,10 @@ See [Compound Engineering configuration](./configuration.md) for every option an
 
 | Question | Answer |
 |----------|--------|
-| What does it do? | Runs a health check, reports optional tools, refreshes the example config, applies only the repo-local fixes you approve, and scaffolds a Compound Pack on request |
+| What does it do? | Runs a health check, reports optional tools and all three config read layers, refreshes the example config, applies only the repo-local fixes you approve, and scaffolds a Compound Pack on request |
 | When to use it | First install, after an upgrade, when a skill says a tool is missing, or when onboarding a repo |
 | What it produces | A setup report, plus any config or gitignore edits you accepted |
-| What it does not do | Bulk-install optional CE dependencies, update the plugin itself, or create `config.local.yaml` |
+| What it does not do | Bulk-install optional CE dependencies, update the plugin itself, or create `config.local.yaml` or `~/.compound-engineering/config.yaml` |
 
 ---
 
@@ -36,9 +36,10 @@ On oh-my-pi the invocation is `/skill:ce-setup`. On Codex it is `$ce-setup` when
 
 ## Why setup does not install everything
 
-Compound Engineering has two separate setup surfaces:
+Compound Engineering has three separate setup surfaces:
 
 - **Repo-local state** that should stay consistent and safe: the committed config example, the repo `config.yaml`, and gitignore coverage for `config.local.yaml` and `.context/compound-engineering/` scratch.
+- **Read-only personal defaults** in `~/.compound-engineering/config.yaml`: health reports this layer as present, absent, or skipped, but setup never creates or writes it. The operator creates it by hand when wanted.
 - **Optional external tools** used by specific workflows: `agent-browser`, `gh`, `jq`, `ast-grep`, `ffmpeg`.
 
 A missing optional tool is not a broken plugin. Most workflows never touch `ffmpeg` or `ast-grep`, so installing everything up front is wasted footprint. `ce-setup` reports what is missing, says which workflow each tool serves, and prints the install command. You install only what you use.
@@ -53,7 +54,7 @@ The example config refresh happens on its own (it is the committed template copy
 - Offers to add `.compound-engineering/*.local.yaml` to `.gitignore`, but only when `config.local.yaml` already exists and is not ignored.
 - Offers to add `.context/compound-engineering/` to `.gitignore` whether or not that directory exists yet. An uncovered path is a note, not a project issue.
 - Offers to add a line about the `<root>/solutions/` knowledge store to your root agent-instructions file (`AGENTS.md`, `CLAUDE.md`, or equivalent) when the file does not already convey it, placed in the file's own structure. Then offers the standing compounding instruction from the [ce-compound guide](./ce-compound.md#make-capture-automatic), offer-first or automatic, inserted verbatim. Only when the store is tracked in this repo, and never creates the file. Then offers the `ce-noslop` chat-register instruction, inserted verbatim, so agent reports and summaries to you lead with the outcome and carry no acknowledgements, offers of more help, or process narration. Skipped only when the file already covers the report boundary, that register, and the exclusions (code, config, verbatim quotes, text you asked to post as written); a partial or unrelated writing rule still gets the offer.
-- Repairs an invalid CE Work implementation-engine block, or leftover retired routing keys, in the config layer that supplied the bad value.
+- Repairs an invalid CE Work implementation-engine block, or leftover retired routing keys, when a repo config layer supplied the bad value. Findings in the personal file are diagnostic only; setup never edits that file.
 - Repairs an invalid `docs_root`. This one is a real project issue: CE artifacts will not be written until it is fixed. See [Artifact root](./configuration.md#artifact-root).
 
 Each question uses the host's blocking question tool when one exists. It never silently auto-configures.
@@ -64,7 +65,7 @@ Each question uses the host's blocking question tool when one exists. It never s
 
 ## Where artifacts land
 
-The health report includes the resolved artifact root (`docs/` by default, or a valid `docs_root` from `config.yaml`) and which config layer supplied it. `docs_root` in `config.local.yaml` is ignored; if your local file still has one, setup says so and offers to move it into `config.yaml`.
+The health report includes the resolved artifact root (`docs/` by default, or a valid `docs_root` from `config.yaml`) and which config layer supplied it. `docs_root` in `config.local.yaml` or the personal file is ignored; if your local file still has one, setup says so and offers to move it into `config.yaml`.
 
 ---
 
@@ -138,7 +139,7 @@ Skip it when:
 ## FAQ
 
 **What is `compound-engineering.local.md` and why is it obsolete?**
-It was the old machine-local config file. Team defaults now live in `.compound-engineering/config.yaml`, and `config.local.yaml` is the optional per-checkout override. Review-agent selection is automatic.
+It was the old machine-local config file. Team defaults now live in `.compound-engineering/config.yaml`, `config.local.yaml` is the optional per-checkout override, and personal lowest-precedence defaults may live in the manually managed `~/.compound-engineering/config.yaml`. Review-agent selection is automatic.
 
 **Why gitignore `.compound-engineering/config.local.yaml`?**
 It is a per-checkout override, so committing it defeats the point. The committed `config.example.yaml` shows the available settings. Setup creates the repo file, never the override.
@@ -150,4 +151,4 @@ It is a per-checkout override, so committing it defeats the point. The committed
 - [Compound Engineering configuration](./configuration.md): every supported option, its consumer, and precedence
 - [`/ce-test-browser`](./ce-test-browser.md): uses `agent-browser` when no capable host-native browser is available
 - [`/ce-dogfood`](./ce-dogfood.md): uses `agent-browser` for diff-scoped QA
-- [`/ce-product-pulse`](./ce-product-pulse.md): reads pulse settings from CE config (local then repo)
+- [`/ce-product-pulse`](./ce-product-pulse.md): reads pulse values from local, repo, then personal config; its first-run check uses only the two repo layers
