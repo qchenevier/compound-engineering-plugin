@@ -342,9 +342,11 @@ printf '%s\n' '${JSON.stringify({
     expect(serialized.match(/\[REDACTED\]/g)).toHaveLength(6)
   }, 30_000)
 
-  // The host maps a work_engine_preferences item's `effort` to
-  // CROSS_MODEL_EFFORT_OVERRIDE on the runner start call only; the worker argv
-  // stays the controller-authorized adapter path and its four operands.
+  // Covers the mechanical half of the effort handoff: CROSS_MODEL_EFFORT_OVERRIDE
+  // set (or removed) on the runner start call reaches the Codex argv, and the
+  // worker argv stays the controller-authorized adapter path and its four
+  // operands. Choosing the value from a work_engine_preferences item is the
+  // host's step in cross-model-execution.md and is not exercised here.
   test.each([
     ["max", "model_reasoning_effort=max"],
     [null, "model_reasoning_effort=high"],
