@@ -673,6 +673,71 @@ describe("ce-setup check-health", () => {
     }
   })
 
+  test.each([
+    [
+      "an effort beside a model",
+      "  - harness: codex\n    model: gpt-6.2-sol\n    effort: max\n  - harness: claude\n",
+      "prefer -> codex@gpt-6.2-sol (effort max), claude@default",
+    ],
+    ["an effort without a model", "  - harness: codex\n    effort: max\n", "prefer -> codex@default (effort max)"],
+    ["an effort listed first", "  - effort: high\n    harness: claude\n", "prefer -> claude@default (effort high)"],
+    ["a quoted effort with a comment", "  - harness: opencode\n    effort: \"default\" # variant\n", "prefer -> opencode@default (effort default)"],
+  ])("lists %s with that effort", async (_name, preferences, expected) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "ce-setup-health-"))
+
+    try {
+      await initConfiguredRepo(root, `work_engine_mode: prefer\nwork_engine_preferences:\n${preferences}`)
+      const result = await runCheckHealth(root, "/usr/bin:/bin")
+
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toContain(`CE Work implementation engine: ${expected}`)
+      expect(result.stdout).not.toContain("project issue(s) found")
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  test.each([
+    ["codex", "bogus"],
+    ["codex", "ultra"],
+    ["claude", "minimal"],
+    ["grok", "max"],
+    ["cursor", "high"],
+    ["opencode", "$(touch)"],
+  ])("rejects effort valid for no %s route: %s", async (harness, effort) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "ce-setup-health-"))
+
+    try {
+      await initConfiguredRepo(
+        root,
+        `work_engine_mode: prefer\nwork_engine_preferences:\n  - harness: ${harness}\n    effort: '${effort}'\n`,
+      )
+      const result = await runCheckHealth(root, "/usr/bin:/bin")
+
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toContain(
+        `CE Work implementation engine unavailable: invalid effort '${effort}' for harness '${harness}' in work_engine_preferences`,
+      )
+      expect(result.stdout).toContain("project issue(s) found")
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  test("an effort with no harness is reported rather than dropped", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "ce-setup-health-"))
+
+    try {
+      await initConfiguredRepo(root, "work_engine_mode: prefer\nwork_engine_preferences:\n  - effort: max\n")
+      const result = await runCheckHealth(root, "/usr/bin:/bin")
+
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toContain("effort 'max' has no harness in work_engine_preferences")
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   test("tracked-only work_engine_mode prefer is honored", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "ce-setup-health-"))
 

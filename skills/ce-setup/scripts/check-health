@@ -273,14 +273,20 @@ read_work_engine_preferences() {
       if (!have_item) return
       if (harness == "" && model != "") {
         print "ERROR\tmodel \047" model "\047 has no harness in work_engine_preferences"
+      } else if (harness == "" && effort != "") {
+        print "ERROR\teffort \047" effort "\047 has no harness in work_engine_preferences"
       } else if (harness == "") {
         print "ERROR\tempty item in work_engine_preferences"
       } else {
-        print "ITEM\t" harness "\t" (model == "" ? "default" : model)
+        # Effort is "=<value>" when present and "-" when absent: tab is IFS
+        # whitespace for the reader, so an empty field would collapse, and no
+        # bare value can serve as the marker ("default" is an opencode variant).
+        print "ITEM\t" harness "\t" (model == "" ? "default" : model) "\t" (effort == "" ? "-" : "=" effort)
       }
       have_item = 0
       harness = ""
       model = ""
+      effort = ""
     }
     /^[^[:space:]#-][^:]*[[:space:]]*:/ {
       if (active) {
@@ -309,9 +315,22 @@ read_work_engine_preferences() {
         have_item = 1
         next
       }
+      if (line ~ /^[[:space:]]*-[[:space:]]*effort[[:space:]]*:/) {
+        emit_item()
+        sub(/^[[:space:]]*-[[:space:]]*effort[[:space:]]*:[[:space:]]*/, "", line)
+        effort = scalar(line)
+        have_item = 1
+        next
+      }
       if (line ~ /^[[:space:]]+model[[:space:]]*:/) {
         sub(/^[[:space:]]+model[[:space:]]*:[[:space:]]*/, "", line)
         model = scalar(line)
+        if (!have_item) have_item = 1
+        next
+      }
+      if (line ~ /^[[:space:]]+effort[[:space:]]*:/) {
+        sub(/^[[:space:]]+effort[[:space:]]*:[[:space:]]*/, "", line)
+        effort = scalar(line)
         if (!have_item) have_item = 1
         next
       }
@@ -568,7 +587,7 @@ if [ -n "$retired_work_engine_keys" ]; then
 fi
 
 if [ -n "$structured_file" ]; then
-  while IFS=$'\t' read -r preference_kind preference_harness preference_model; do
+  while IFS=$'\t' read -r preference_kind preference_harness preference_model preference_effort; do
     case "$preference_kind" in
       ITEM)
         work_engine_preferences_count=$((work_engine_preferences_count + 1))
@@ -593,6 +612,21 @@ if [ -n "$structured_file" ]; then
           esac
         fi
         preference_display="${preference_harness}@${preference_model}"
+        if [ "$preference_effort" != "-" ]; then
+          preference_effort="${preference_effort#=}"
+          # Same per-route allow-lists as the ce-work adapter's
+          # validate_effort_override; cursor routes take no effort.
+          case "$preference_harness:$preference_effort" in
+            claude:low|claude:medium|claude:high|claude:xhigh|claude:max) ;;
+            codex:minimal|codex:low|codex:medium|codex:high|codex:xhigh|codex:max) ;;
+            grok:low|grok:medium|grok:high) ;;
+            opencode:none|opencode:minimal|opencode:low|opencode:medium|opencode:high|opencode:xhigh|opencode:max|opencode:default) ;;
+            *)
+              [ -z "$work_engine_preferences_error" ] && work_engine_preferences_error="invalid effort '$preference_effort' for harness '$preference_harness' in work_engine_preferences"
+              ;;
+          esac
+          preference_display="${preference_display} (effort ${preference_effort})"
+        fi
         if [ -n "$work_engine_preferences_detail" ]; then
           work_engine_preferences_detail="${work_engine_preferences_detail}, ${preference_display}"
         else

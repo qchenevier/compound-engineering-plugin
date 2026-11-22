@@ -285,6 +285,10 @@ describe("ce-work fixed write routes", () => {
     expect(emit("codex", cleanEnv()).stdout).toContain("-c model_reasoning_effort=high")
     expect(withOverride("codex", "xhigh").stdout).toContain("-c model_reasoning_effort=xhigh")
     expect(withOverride("codex", "minimal").stdout).toContain("-c model_reasoning_effort=minimal")
+    const codexMax = withOverride("codex", "max")
+    expect(codexMax.status).toBe(0)
+    expect(codexMax.stdout).toContain("-c model_reasoning_effort=max")
+    expect(codexMax.stdout).not.toContain("model_reasoning_effort=high")
 
     expect(emit("claude", cleanEnv()).stdout).toContain("--effort high")
     expect(withOverride("claude", "low").stdout).toContain("--effort low")
@@ -301,7 +305,7 @@ describe("ce-work fixed write routes", () => {
       expect(proc.stderr).toContain(`effort override '${value}' not compatible with route '${route}'`)
     }
 
-    rejected("codex", "max") // codex tops out at xhigh
+    rejected("codex", "ultra") // codex tops out at max
     rejected("codex", "none")
     rejected("claude", "minimal")
     rejected("grok-cli", "xhigh")
@@ -312,6 +316,23 @@ describe("ce-work fixed write routes", () => {
     rejected("grok-cursor", "high")
     // opencode is effort-bearing through --variant, but only for its own enum
     rejected("opencode", "bogus")
+  })
+
+  test("per-route effort allow-lists match the review adapters", () => {
+    const allowLists = (script: string) =>
+      readFileSync(script, "utf8")
+        .split("\n")
+        .filter((line) => /^\s+(claude|codex|grok-cli|opencode):[a-z]+(\|\1:[a-z]+)*\) ;;$/.test(line))
+        .map((line) => line.trim())
+    const work = allowLists(SCRIPT)
+    expect(work).toHaveLength(4)
+    expect(work).toContain("codex:minimal|codex:low|codex:medium|codex:high|codex:xhigh|codex:max) ;;")
+    for (const review of [
+      "skills/ce-code-review/scripts/cross-model-adversarial-review.sh",
+      "skills/ce-doc-review/scripts/cross-model-doc-review.sh",
+    ]) {
+      expect(allowLists(path.join(process.cwd(), review))).toEqual(work)
+    }
   })
 
   test("opencode carries the override through --variant, matching the review adapters", () => {

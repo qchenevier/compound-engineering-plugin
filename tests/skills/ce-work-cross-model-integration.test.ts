@@ -342,6 +342,107 @@ printf '%s\n' '${JSON.stringify({
     expect(serialized.match(/\[REDACTED\]/g)).toHaveLength(6)
   }, 30_000)
 
+  // The host maps a work_engine_preferences item's `effort` to
+  // CROSS_MODEL_EFFORT_OVERRIDE on the runner start call only; the worker argv
+  // stays the controller-authorized adapter path and its four operands.
+  test.each([
+    ["max", "model_reasoning_effort=max"],
+    [null, "model_reasoning_effort=high"],
+  ])("controller-authorized Codex dispatch with effort %s pins %s", (effort, expectedArgument) => {
+    const root = temp("ce-work-effort-")
+    const repo = path.join(root, "repo")
+    const peerRoot = path.join(root, "jobs")
+    const runs = path.join(peerRoot, "ce-work")
+    mkdirSync(repo)
+    git(repo, "init", "-b", "main")
+    git(repo, "config", "user.name", "CE Work Host")
+    git(repo, "config", "user.email", "host@example.test")
+    mkdirSync(path.join(repo, "docs", "plans"), { recursive: true })
+    const plan = path.join(repo, "docs", "plans", "plan.md")
+    writeFileSync(plan, "# Plan\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "seed")
+    const base = git(repo, "rev-parse", "HEAD")
+    const planDigest = createHash("sha256").update(readFileSync(plan)).digest("hex")
+    expect(control(
+      runs,
+      "init",
+      "--run-id", "effort-run",
+      "--repo", repo,
+      "--plan", plan,
+      "--plan-digest", planDigest,
+      "--binding-json", '{"mode":"prefer","target":"codex","model":null,"source":"test"}',
+      "--egress-json", '{"sanction_source":"test","route":"codex","intermediaries":[],"exposed_material":["U-effort"],"restrictions":[]}',
+    ).word).toBe("READY")
+    const prepared = control(
+      runs,
+      "prepare",
+      "--run-id", "effort-run",
+      "--unit-id", "U-effort",
+      "--base", base,
+      "--packet", packetFile("U-effort packet"),
+      "--attempt-id", "attempt-1",
+      "--activity-posture", "incremental",
+    ).body
+    const resultPath = path.join(prepared.result_dir, "implementation-result.json")
+    const capture = path.join(root, "codex-argv.txt")
+    const fakeBin = path.join(root, "fake-bin")
+    mkdirSync(fakeBin)
+    writeFileSync(path.join(fakeBin, "codex"), `#!/bin/sh
+set -eu
+printf '%s\\n' "$@" > '${capture}'
+result=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then result="$2"; shift 2; continue; fi
+  shift
+done
+printf '%s\\n' '{"terminal_status":"completed","summary":"no change","changed_files":[],"evidence":["fake"],"scope_expansion":null}' > "$result"
+`)
+    chmodSync(path.join(fakeBin, "codex"), 0o755)
+    const startEnvironment: NodeJS.ProcessEnv = {
+      ...process.env,
+      CE_PEER_JOBS_ROOT: peerRoot,
+      CE_WORK_RUNS_ROOT: runs,
+      PATH: `${fakeBin}:${process.env.PATH}`,
+      CE_PEER_POLL_SECS: "0.1",
+      CE_PEER_IDLE_SECS: "10",
+      CE_PEER_HARD_SECS: "30",
+    }
+    delete startEnvironment.CROSS_MODEL_EFFORT_OVERRIDE
+    if (effort) startEnvironment.CROSS_MODEL_EFFORT_OVERRIDE = effort
+    const workerArgv = [
+      ADAPTER, prepared.authorization_path, prepared.workspace, prepared.packet_path,
+      prepared.packet_digest, prepared.result_dir,
+    ]
+    const jobId = run(repo, [
+      "python3", RUNNER, "start",
+      "--skill", "ce-work",
+      "--run-id", "effort-run",
+      "--label", "U-effort",
+      "--input-digest", prepared.packet_digest,
+      "--result-path", resultPath,
+      "--no-sweep",
+      "--", ...workerArgv,
+    ], startEnvironment)
+    expect(control(
+      runs,
+      "record-job",
+      "--run-id", "effort-run",
+      "--unit-id", "U-effort",
+      "--attempt-id", "attempt-1",
+      "--job-id", jobId,
+    ).word).toBe("AUTHORING")
+    expect(run(repo, [
+      "python3", RUNNER, "wait", "--skill", "ce-work", "--max-secs", "30", jobId,
+    ], { ...process.env, CE_PEER_JOBS_ROOT: peerRoot })).toBe("done")
+    const codexArgv = readFileSync(capture, "utf8").split("\n")
+    expect(codexArgv).toContain(expectedArgument)
+    expect(codexArgv.filter((argument) => argument.startsWith("model_reasoning_effort="))).toHaveLength(1)
+    const meta = JSON.parse(readFileSync(path.join(runs, "effort-run", "jobs", jobId, "meta.json"), "utf8"))
+    expect(meta.worker_argv).toEqual(workerArgv)
+    expect(JSON.parse(readFileSync(resultPath, "utf8")).terminal_status).toBe("completed")
+  }, 30_000)
+
   test("missing fixed-route CLI records an authoritative unavailable receipt for fallback disclosure", () => {
     const root = temp("ce-work-unavailable-")
     const repo = path.join(root, "repo")

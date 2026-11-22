@@ -271,6 +271,20 @@ printf '%s' '{"structured_output":{"reviewer":"adversarial","findings":[],"resid
     expect(cmd).toContain("gpt-5.6-luna")
   })
 
+  test("codex accepts a max effort override and still rejects tiers no route documents", () => {
+    const cmd = emitAdapter("codex", { CROSS_MODEL_EFFORT_OVERRIDE: "max" })
+    expect(cmd).toContain('model_reasoning_effort="max"')
+    expect(cmd).not.toContain('model_reasoning_effort="xhigh"')
+    for (const [route, effort] of [["codex", "ultra"], ["grok-cli", "max"]]) {
+      const r = spawnSync("bash", [SCRIPT, "--emit-adapter", route], {
+        encoding: "utf8",
+        env: { ...process.env, CROSS_MODEL_EFFORT_OVERRIDE: effort },
+      })
+      expect(r.status).toBe(2)
+      expect(r.stderr).toContain(`effort override '${effort}' not compatible with route '${route}'`)
+    }
+  })
+
   test("claude: all tools disabled + safe mode + dontAsk + effort high", () => {
     const cmd = emitAdapter("claude")
     expect(cmd).toContain("--permission-mode dontAsk")

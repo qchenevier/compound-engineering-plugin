@@ -56,6 +56,7 @@ work_engine_preferences:
     model: composer
   - harness: codex
     model: gpt-5.6
+    effort: max
   - harness: claude
 ```
 
@@ -63,6 +64,7 @@ work_engine_preferences:
 - `work_engine_preferences`: one or more ordered candidate objects
 - `harness`: `codex | claude | grok | cursor | opencode`
 - optional `model`: a model id or family understood by that harness; omission means its configured default
+- optional `effort`: the worker's reasoning effort. Codex takes `minimal | low | medium | high | xhigh | max`, Claude `low | medium | high | xhigh | max`, native Grok `low | medium | high`, and OpenCode `none | minimal | low | medium | high | xhigh | max | default`; Cursor routes take none. Omission keeps the fixed adapter's default. An effort the normalized route cannot honor makes the candidate unavailable; never substitute another effort.
 
 Do not put CLI commands or flags in configuration. The list expresses implementation intent; the skill's adapter recipes and local inspection determine how to invoke it. Composer is therefore `{ harness: cursor, model: composer }`, while `{ harness: cursor }` means Cursor's configured default.
 
