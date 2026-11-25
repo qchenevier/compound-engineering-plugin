@@ -138,14 +138,9 @@ export function planHost(
     notes.push("stdin must be /dev/null or exec blocks on 'Reading additional input from stdin'")
     notes.push("unset CLAUDECODE or a Claude-launched cell attests the wrong host")
     notes.push("transcript is on stderr; stdout is the final message only")
-    // --sandbox read-only and --dangerously-bypass-approvals-and-sandbox contradict
-    // each other; the bypass flag disables the sandbox the read-only arm depends on.
-    const argv = ["codex", "exec"]
+    const argv = ["codex", "exec", "--sandbox", opts.readOnly ? "read-only" : "workspace-write"]
     if (opts.readOnly) {
-      argv.push("--sandbox", "read-only")
-      notes.push("read-only: --sandbox read-only, no approvals/sandbox bypass")
-    } else {
-      argv.push("--dangerously-bypass-approvals-and-sandbox")
+      notes.push("read-only: --sandbox read-only")
     }
     argv.push("--skip-git-repo-check", "-C", opts.cwd, opts.prompt)
     return { host, argv, env, stdin: "null", notes }

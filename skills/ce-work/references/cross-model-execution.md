@@ -48,6 +48,8 @@ An external worker may edit only inside its controller-owned detached worktree. 
 
 A Codex `workspace-write` packet must also treat socket binds, OS permission checks, and peer-credential probes as host-owned. Preserve the host command and observed result; do not treat a sandbox `EPERM` as proof the host lacks the capability.
 
+The Codex adapter uses managed mode when `CE_CODEX_MANAGED_LAUNCHER` supplies a launcher path or `~/.config/cosma/codex-agent-launcher` records one. `CE_CODEX_MANAGED=off` forces standalone. A missing managed launcher is a startup failure. Qualify managed Codex activity as `hard-only`. The launcher reports terminal output and its wait responses carry job state without incremental work evidence.
+
 Ordinary synchronous native units stay in the active checkout. Ordinary native subagent isolation remains harness-owned. Only the external cross-model controller may create detached sibling worktrees under its private run root; this exception does not authorize `ce-work` to create worktrees for native execution. An active checkout that is already a linked worktree does not disable this route: the controller registers another detached **sibling** through the shared Git common directory under `/tmp/compound-engineering-<effective-uid>/ce-work/<run-id>/`, never a nested worktree beneath the active checkout.
 
 ## Preserve route and lifecycle receipts

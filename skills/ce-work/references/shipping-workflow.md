@@ -38,7 +38,11 @@ This file contains the shipping workflow (Phase 3-4). It is loaded when all Phas
 
    **3b. Apply fixes (the caller applies them, not `ce-code-review`).** Load `references/review-findings-followup.md`: check findings against the evidence and agreed scope, batch justified fixes by file, dispatch fix subagents. The orchestrator merges, tests, and commits. Then proceed to the Residual Work Gate.
 
-   **If the top-level `ce-code-review` attempt cannot produce a completed receipt:** Preserve the review requirement by entering this branch only when the cataloged skill definition fails to load, or an attempted top-level invocation has terminated without a usable completed receipt and no recovery remains inside `ce-code-review`. Evidence comes from the definition load or the top-level terminal outcome; intermediate internal events never establish caller-owned unavailability. A missing dedicated runner, executable, or binary is not evidence when the definition loads, so proceed through 3a and let `ce-code-review` own its recovery. In an **interactive** session, run the harness-native review if the session catalog lists one (use that entry's listed path; it is not a Compound Engineering skill), fix inline, and note `Code review: harness-native fallback` with a one-line reason (that phrase is what satisfies the completion gate; a silent mental review does not). In a **non-interactive** session (autonomous pipeline, or no native review available), skip the dedicated step, note `Code review: skipped (ce-code-review unavailable)`, and add an explicit manual diff scan to Final Validation. Never silently ship a non-mechanical change with no review of any kind.
+   **If the top-level `ce-code-review` attempt cannot produce a completed receipt:** Enter this branch when the cataloged definition fails to load or the top-level invocation terminates without a usable receipt and has exhausted its recovery. Use the definition load or top-level terminal outcome as evidence. Intermediate internal events never establish caller-owned unavailability. A missing dedicated runner, executable, or binary is not evidence when the definition loads. Proceed through 3a and let `ce-code-review` own its recovery.
+
+   If a caller owns the chain, return at this gate using Return-to-Caller Mode. The handoff and the review it requires are defined in `references/return-to-caller.md`.
+
+   For standalone work with no caller, use the harness-native review if the session is interactive and the catalog lists one. Use that entry's listed path, fix inline, and record `Code review: harness-native fallback` with the reason. If that fallback is unavailable, record `Code review: skipped (ce-code-review unavailable)` with the reason and add an explicit manual diff scan to Final Validation.
 
 4. **Residual Work Gate** (REQUIRED when `ce-code-review` ran and left justified unresolved findings)
 
@@ -99,6 +103,7 @@ This file contains the shipping workflow (Phase 3-4). It is loaded when all Phas
 
 3. **Notify User**
    - Summarize what was completed
+   - Name the provider that ran each chained step
    - Link to PR (if one was created)
    - Note any follow-up work needed
    - Suggest next steps if applicable
@@ -130,4 +135,4 @@ Single portable path: **`ce-code-review`** self-sizes. No harness-native review 
 
 **Two steps — review is not fix.** (3a) Review-only via `mode:agent`; add `depth:full` when the plan/task/user explicitly asked for a deep review. (3b) Batched fix subagents per `references/review-findings-followup.md`; residuals → Residual Work Gate. Re-check the completion gate at the ship handoff before `ce-commit-push-pr` / `ce-commit`.
 
-**Unavailable review fallback:** preserve the review requirement by using this branch only when the cataloged skill definition fails to load, or an attempted top-level invocation has terminated without a usable completed receipt and no recovery remains inside `ce-code-review`. Evidence comes from the definition load or the top-level terminal outcome; intermediate internal events never establish caller-owned unavailability. A missing dedicated runner, executable, or binary is not evidence when the definition loads. Interactive → harness-native review if present, fix inline, note `Code review: harness-native fallback`; non-interactive → exact unavailable skip phrase + manual diff scan in Final Validation. Never silently ship a non-mechanical change unreviewed.
+**Unavailable review fallback:** Use the top-level evidence and route in Step 3.

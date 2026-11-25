@@ -98,7 +98,7 @@ For each hypothesis in the batch, dispatch according to `execution.mode`. In `se
 
 The Phase 3 blocks below each set `SKILL_DIR` inline as well (the loaded `ce-optimize` skill directory; see the Bundled scripts note in Phase 1). Shell state does not persist from Phase 1, so each block carries its own assignment.
 
-**Worktree backend:**
+**Experiment setup for both backends**
 1. Create experiment worktree:
    ```bash
    SKILL_DIR="<absolute path of the directory containing this SKILL.md>";
@@ -112,21 +112,16 @@ The Phase 3 blocks below each set `SKILL_DIR` inline as well (the loaded `ce-opt
    - Mutable and immutable scope
    - Constraints and approved dependencies
    - Rolling window of last 10 experiments (concise summaries)
-4. Dispatch a subagent with the filled prompt, working in the experiment worktree
+4. With `execution.backend: worktree`, dispatch a subagent with the filled prompt in the experiment worktree.
 
-**Codex backend:**
-1. Check environment guard -- do NOT delegate if already inside a Codex sandbox:
-   ```bash
-   # If these exist, we're already in Codex -- fall back to subagent
-   test -n "${CODEX_SANDBOX:-}" || test -n "${CODEX_SESSION_ID:-}" || test ! -w .git
-   ```
-2. Fill the experiment prompt template
-3. Write the filled prompt to a temp file
-4. Dispatch via Codex:
-   ```bash
-   cat /tmp/optimize-exp-XXXXX.txt | codex exec --skip-git-repo-check - 2>&1
-   ```
-5. Security posture: use the user's selection (ask once per session if not set in spec)
+**Codex backend.** Write the filled prompt to a private temporary file and keep it until dispatch completes. Run the bundled adapter for the experiment worktree.
+
+```bash
+SKILL_DIR="<absolute path of the directory containing this SKILL.md>";
+bash "$SKILL_DIR/scripts/codex-experiment.sh" "<experiment-worktree>" "<brief-file>"
+```
+
+The adapter uses the managed launcher when configured. A managed startup error reports its cause. The managed report carries the experiment's answer, approvals and refusals. In standalone mode the adapter uses the workspace-write sandbox. If the standalone guard reports that Codex is unavailable from this worktree (exit 3), dispatch a subagent in the same worktree. Handle other failures through the Codex failure cascade below.
 
 ### 3.3 Collect and Persist Results
 

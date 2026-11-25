@@ -26,7 +26,7 @@ function temp(prefix: string): string {
 }
 
 function run(cwd: string, argv: string[], env: NodeJS.ProcessEnv = process.env) {
-  const result = spawnSync(argv[0], argv.slice(1), { cwd, env, encoding: "utf8" })
+  const result = spawnSync(argv[0], argv.slice(1), { cwd, env: { ...env, CE_CODEX_MANAGED: "off" }, encoding: "utf8" })
   if (result.status !== 0) {
     throw new Error(`${argv.join(" ")}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
   }
@@ -482,6 +482,7 @@ printf '%s\\n' '{"terminal_status":"completed","summary":"no change","changed_fi
       CE_PEER_JOBS_ROOT: peerRoot,
       CE_WORK_RUNS_ROOT: runs,
       PATH: limitedPath,
+      CROSS_MODEL_CODEX_APP_DIRS: "",
       CE_PEER_POLL_SECS: "0.1",
       CE_PEER_IDLE_SECS: "10",
       CE_PEER_HARD_SECS: "30",

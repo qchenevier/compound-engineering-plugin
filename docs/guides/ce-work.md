@@ -267,7 +267,9 @@ A candidate is usable only after its unattended, write-capable, isolated-workspa
 
 ### What an External Run Does
 
-Before any repository material leaves the host, `ce-work` discloses the instruction or config source, the fixed recipient, what bounded unit material is exposed, and which restrictions are adapter-enforced versus cooperative. The adapter uses the CLI's existing authentication, receives a minimized environment, and cannot switch recipients, widen scope, push, open a PR, or choose fallback.
+Before any repository material leaves the host, `ce-work` discloses the instruction or config source, the fixed recipient, what bounded unit material is exposed, and which restrictions are adapter-enforced versus cooperative. The adapter uses the CLI's existing authentication and cannot switch recipients, widen scope, push, open a PR, or choose fallback.
+
+Direct CLI dispatch uses a minimized environment. Codex dispatch uses the managed launcher when `~/.config/cosma/codex-agent-launcher` records a path or `CE_CODEX_MANAGED_LAUNCHER` supplies one. The launcher inherits the user session environment and applies its own policy. A missing configured launcher produces a startup error. Set `CE_CODEX_MANAGED=off` to use the direct Codex route.
 
 Each external unit starts from a clean recorded SHA in a detached linked worktree under `/tmp/compound-engineering-<effective-uid>/ce-work/<run-id>/` (or `$TMPDIR/compound-engineering-<effective-uid>/ce-work/<run-id>/` when `/tmp` cannot host a writable private root, as in a sandbox that only allowlists `$TMPDIR`). This is same-user concurrency and accidental-mutation containment, **not a security sandbox**. Synchronous native units still use the active checkout; `ce-work` does not create a temporary worktree for every unit. If the selected plan is the only dirty path, `ce-work` discloses and creates a plan-only checkpoint commit first. Any unrelated dirt makes the external route unavailable.
 

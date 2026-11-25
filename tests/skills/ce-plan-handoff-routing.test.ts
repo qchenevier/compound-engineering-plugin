@@ -49,6 +49,15 @@ const ISSUE_CREATION_SECTION =
 // "Start `ce-work` (Recommended)", and the agent stops in prose without
 // invoking the `ce-work` skill.
 describe("ce-plan post-generation menu routing", () => {
+  test("unreachable document review returns the plan at the gate with review pending", () => {
+    const review = HANDOFF_BODY.slice(0, HANDOFF_BODY.indexOf("## 5.3.9 Final Checks and Cleanup"))
+    expect(review).toMatch(/review pending/i)
+    expect(review).toContain("status: blocked")
+    expect(review).toContain("skipped_reason: skill_unreachable")
+    expect(review).toMatch(/before handing on the plan/i)
+    expect(review).toMatch(/provider (?:that|which) ran each chained step/i)
+  })
+
   test("plan-handoff.md owns executable routing for every menu option", () => {
     // Anchor on the Phase 5.4 region so a stray match elsewhere in the file
     // doesn't satisfy these assertions.
@@ -235,17 +244,15 @@ describe("ce-plan post-generation menu routing", () => {
       "inside ce-doc-review, use direct runtime instructions instead of referring to the running skill in the third person.",
     ).toBe(1)
 
-    const pipelineStart = HANDOFF_BODY.indexOf("**Pipeline mode:**")
-    const pipelineEnd = HANDOFF_BODY.indexOf("## 5.3.9 Final Checks and Cleanup")
-    const reviewPipeline = HANDOFF_BODY.slice(pipelineStart, pipelineEnd)
-    // Pins the condition (ce-plan is the party that recorded the stand-in
-    // result), not the noun the prose uses for that result.
+    const reviewStart = HANDOFF_BODY.indexOf("## 5.3.8 Document Review")
+    const reviewEnd = HANDOFF_BODY.indexOf("## 5.3.9 Final Checks and Cleanup")
+    const reviewPhase = HANDOFF_BODY.slice(reviewStart, reviewEnd)
     expect(
-      /ce-plan recorded the `skill_unreachable`/i.test(reviewPipeline),
+      /if `ce-doc-review` cannot be invoked, record the stand-in/i.test(reviewPhase),
       "ce-plan must own the synthetic pre-entry result instead of attributing it to an invocation that never began.",
     ).toBe(true)
     expect(
-      reviewPipeline.includes("invocation instead produced `skill_unreachable`"),
+      reviewPhase.includes("invocation instead produced `skill_unreachable`"),
       "a failed-to-start invocation cannot produce a downstream result.",
     ).toBe(false)
 
@@ -254,14 +261,9 @@ describe("ce-plan post-generation menu routing", () => {
     )?.[0]
     expect(menuPipeline).toBeDefined()
     expect(
-      /ce-doc-review (?:completed|ran)|`skill_unreachable`/.test(menuPipeline!),
-      "the pipeline handoff must allow either a completed review or the explicit pre-entry state.",
+      /completed `ce-doc-review`/.test(menuPipeline!),
+      "the pipeline handoff follows a completed review. The unreachable path returns earlier.",
     ).toBe(true)
-    expect(
-      menuPipeline!.includes("ce-doc-review has already run"),
-      "the pipeline handoff must not claim the review ran after a skill_unreachable pre-entry state.",
-    ).toBe(false)
-    expect(/`?ce-plan`? (?:has )?recorded the (?:documented )?`skill_unreachable`/.test(HANDOFF_BODY)).toBe(true)
     expect(
       /ce-doc-review` has run in (?:headless|non-interactive) mode or returned the documented `skill_unreachable` envelope/.test(
         SKILL_BODY,

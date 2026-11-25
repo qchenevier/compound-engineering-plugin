@@ -31,7 +31,10 @@ describe("skill-eval-cell host plans pin measured gotchas", () => {
   test("codex closes stdin and skips the git-repo check", () => {
     const plan = planHost("codex", { cwd, prompt: "task", promptFile })
     expect(plan.argv).toContain("exec")
-    expect(plan.argv).toContain("--dangerously-bypass-approvals-and-sandbox")
+    expect(plan.argv).not.toContain("--dangerously-bypass-approvals-and-sandbox")
+    expect(plan.argv.slice(plan.argv.indexOf("--sandbox"), plan.argv.indexOf("--sandbox") + 2)).toEqual([
+      "--sandbox", "workspace-write",
+    ])
     expect(plan.argv).toContain("--skip-git-repo-check")
     expect(plan.argv).toContain("-C")
     expect(plan.argv).toContain(cwd)

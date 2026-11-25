@@ -41,6 +41,19 @@ import { describe, expect, test } from "bun:test"
 
 const PLUGIN_SKILLS_GLOB = ["skills"]
 
+test("bundled scripts and eval drivers keep the Codex sandbox enabled", () => {
+  const scripts = new Bun.Glob("**/*.{sh,py,ts,js,mjs,cjs}")
+  const offenders: string[] = []
+  for (const root of ["skills", "scripts", "src", "tests", ".opencode", ".pi"]) {
+    for (const name of scripts.scanSync({ cwd: root })) {
+      if (name.endsWith(".test.ts")) continue
+      const file = path.join(root, name)
+      if (readFileSync(file, "utf8").includes("--dangerously-bypass-approvals-and-sandbox")) offenders.push(file)
+    }
+  }
+  expect(offenders).toEqual([])
+})
+
 function listSkillFiles(): string[] {
   const out: string[] = []
   for (const rel of PLUGIN_SKILLS_GLOB) {

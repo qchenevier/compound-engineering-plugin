@@ -85,12 +85,12 @@ One scenario is not an eval for a skill people run every day. Enumerate entry pa
 
 ## Eval-harness gotchas
 
-Headless invocations of the local harnesses, measured 2026-08-17; none are skill defects, all look like one. `tests/skill-eval-cell/hosts.ts` bakes these in.
+The harness behaviors below were observed on 2026-08-17. `tests/skill-eval-cell/hosts.ts` carries the current invocations.
 
-| Harness | Invocation that worked | Gotcha |
+| Harness | Invocation | Gotcha |
 |---|---|---|
 | Claude Code | `claude -p "<prompt>" --dangerously-skip-permissions --output-format text` (`--allowedTools Read Glob Grep --disallowedTools Bash Edit Write` for read-only) | Print mode ends the turn the moment the model stops calling tools, so a skill that "arms a watcher and waits" exits right after arming; run sustained watches interactively or via Codex/Grok. "no stdin data received in 3s" is harmless. |
-| Codex CLI 0.147 | `codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -C <dir> "<prompt>" < /dev/null` (`--sandbox read-only` for fake-boundary) | **Without `< /dev/null` it blocks forever on "Reading additional input from stdin"**. Streams the transcript to stderr and only the final message to stdout -- a 0-byte stdout means still running or an empty final. Link the worktree's skills first with `bun run codex:dev -- local`. |
+| Codex CLI | `codex exec --sandbox workspace-write --skip-git-repo-check -C <dir> "<prompt>" < /dev/null` (`--sandbox read-only` for fake-boundary) | **Without `< /dev/null` it blocks forever on "Reading additional input from stdin"**. Streams the transcript to stderr and only the final message to stdout -- a 0-byte stdout means still running or an empty final. Link the worktree's skills first with `bun run codex:dev -- local`. |
 | Grok CLI (grok-4.6) | `grok -p "<prompt>" --cwd <dir> --always-approve --disable-web-search` (`--deny "Bash"` for read-only) | Progress narration is printed to stdout **before** the answer with no separator; grep for the answer structure. `-p` sustains a background watch (12-min watches completed). |
 | Cursor agent | `cursor-agent -p "<prompt>" --output-format text --sandbox enabled --trust` | Hangs with no output on a fresh workspace (trust/auth prompt not surfaced under `-p`); trust the workspace interactively once first, and do not count a hung run as a result. |
 | `codex exec` from a Claude Code shell | `env -u CLAUDECODE codex exec ...` | Inherits `CLAUDECODE=1` and the peer attests itself as running under Claude Code, corrupting host receipts. |

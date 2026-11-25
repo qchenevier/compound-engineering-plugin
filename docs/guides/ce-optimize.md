@@ -182,7 +182,7 @@ Templates live next to the skill: `references/example-hard-spec.yaml` for a chea
 
 In-scope files must be clean before measurement. Uncommitted changes in the spec's mutable or immutable paths have to be committed or stashed.
 
-`execution.backend: codex` (in the spec, not as a prompt flag) sends each experiment to `codex exec`. If you are already inside a Codex sandbox, or `.git` is not writable, it falls back to subagents. Three Codex failures in a row disable that backend for the rest of the run.
+`execution.backend: codex` dispatches Codex in each experiment worktree. The backend uses the launcher recorded at `~/.config/cosma/codex-agent-launcher` or the path in `CE_CODEX_MANAGED_LAUNCHER`. Set `CE_CODEX_MANAGED=off` to force standalone Codex with the workspace-write sandbox. In standalone mode, an active Codex session or a read-only `.git` triggers subagent dispatch. Three consecutive Codex failures switch the remaining experiments to subagents.
 
 First-run limits are ceilings, not estimates of how long the work will take. The one-hour limit starts when experiments begin, excluding setup and baseline measurement. Defaults worth keeping until the measurement method is trusted: `execution.mode: serial`, `max_concurrent: 1`, `max_iterations: 4`, `max_hours: 1`. For judge mode: `sample_size: 10`, `batch_size: 5`, `max_total_cost_usd: 5`.
 
@@ -202,7 +202,7 @@ A cheap check that rejects a broken solution before the expensive score. "All it
 Hypothesis generation collects unique new deps and asks for one bulk approval. Unapproved hypotheses stay in the backlog, are skipped during the loop, and come back at wrap-up.
 
 **Can it run on Codex instead of subagents?**
-Yes, via `execution.backend: codex` in the spec. It falls back to subagents when Codex sandboxing is not usable from this context.
+Yes. Set `execution.backend: codex` in the spec to run each experiment with Codex.
 
 **What is still there after the run?**
 The `optimize/<spec-name>` branch, with a commit per kept experiment. The spec and experiment log stay under `.context/compound-engineering/ce-optimize/<spec-name>/` on this machine. That directory is gitignored.

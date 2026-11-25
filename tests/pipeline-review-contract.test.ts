@@ -81,7 +81,7 @@ describe("ce-work review contract", () => {
     expect(findings).not.toContain("invoke review only")
     expect(shipping).toContain("A host catalog entry named `review` is not this step")
     expect(shipping).not.toMatch(/`\/review`/)
-    expect(shipping).toContain("use that entry's listed path")
+    expect(shipping).toMatch(/use that entry's listed path/i)
     expect(lfg).toContain("available-skills list")
   })
 
@@ -123,11 +123,14 @@ describe("ce-work review contract", () => {
     expect(shipping).toContain("Never substitute")
     // The caller decides only from the owning boundary: definition load or the
     // terminal top-level receipt. Internal review events cannot authorize fallback.
-    for (const section of [unavailableBranch, reviewSummary]) {
-      expect(section).toContain("intermediate internal events never establish caller-owned unavailability")
-      expect(section).toContain("A missing dedicated runner, executable, or binary is not evidence")
-    }
-    expect(unavailableBranch).toContain("proceed through 3a and let `ce-code-review` own its recovery")
+    expect(unavailableBranch).toMatch(/intermediate internal events never establish caller-owned unavailability/i)
+    expect(unavailableBranch).toContain("A missing dedicated runner, executable, or binary is not evidence")
+    expect(reviewSummary).toMatch(/use the top-level evidence and route in Step 3/i)
+    expect(unavailableBranch).toMatch(/proceed through 3a and let `ce-code-review` own its recovery/i)
+    expect(unavailableBranch).toMatch(/return at (?:this|the) gate.*Return-to-Caller Mode/i)
+    const returned = await readRepoFile("skills/ce-work/references/return-to-caller.md")
+    expect(returned).toMatch(/before any dependent push, merge, or run/i)
+    expect(returned).toMatch(/provider (?:that|which) ran each chained step/i)
   })
 
   test("delegates commit and PR to dedicated skills", async () => {
@@ -671,13 +674,10 @@ describe("ce-plan review contract", () => {
 
     // Default at Phase 5.3.8 is `mode:non-interactive` so users opt into deeper interactive review
     // explicitly from the post-generation menu rather than being forced through it.
-    expect(content).toContain(
-      "Invoke the `ce-doc-review` skill with arguments `mode:non-interactive <plan-path>`",
-    )
-    expect(content).toContain("ce-doc-review` with `mode:non-interactive`")
     expect(content).toMatch(
-      /invoke `ce-doc-review` with `mode:non-interactive` and the plan path/i,
+      /invoke `ce-doc-review` with `mode:non-interactive <plan-path>`/i,
     )
+    expect(content).toMatch(/\*\*Pipeline mode:\*\* Use the same non-interactive review/i)
     expect(skillStub).toMatch(/the default is non-interactive \(`mode:non-interactive`\)/i)
     expect(content).not.toContain("skip document-review and return control")
 

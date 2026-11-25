@@ -4,17 +4,19 @@ This file contains post-plan-writing instructions for the Durable path: document
 
 ## 5.3.8 Document Review
 
-Invoke the `ce-doc-review` skill with arguments `mode:non-interactive <plan-path>` using the host's normal skill-invocation mechanism. Do not substitute a generic Task, Agent, or subagent; those are delegation mechanisms, not skill invocation. This phase runs for both markdown and HTML; `ce-doc-review` applies fixes in the artifact's native format. It is mandatory — do not skip it because the confidence check already ran. The two workflows catch different classes of issues.
+Complete document review before handing on the plan. Invoke `ce-doc-review` with `mode:non-interactive <plan-path>` using the host's normal skill-invocation mechanism. Do not substitute a generic Task, Agent, or subagent. The review applies fixes in the artifact's native format. Confidence checking and document review each have their own completion condition.
+
+Include the provider that ran a completed document review in the handoff. The caller's report names the provider that ran each chained step.
 
 While authoring or revising a draft within the user's planning request, carry that permission to edit into the review: "Apply corrections to this draft's implementation and verification sections needed to satisfy its established Product Contract. Preserve that contract, existing constraints, and user-reserved or session-settled decisions." Supply the document path and the actual contract; the skill name or non-interactive mode alone does not grant permission. If the request does not authorize revising the document, grant no permission to edit. `ce-doc-review` decides whether a fix is applied and enforces its restriction on fixes that only another model found; do not apply a returned proposal merely to bypass that restriction.
 
-If `ce-doc-review` cannot be invoked, record a stand-in structured review result (the shape `ce-doc-review` would normally return) with these values and proceed to Final Checks:
+If `ce-doc-review` cannot be invoked, record the stand-in review result below and return at this gate with **review pending** and the saved draft path. In pipeline mode, include the stand-in with `status: blocked`, `phase: document-review`, `blocker`, `artifact_path` and `recovery_path`. Stop before the handoff menu or any already-authorized next action.
 - `fixes_applied = 0`
 - `proposed_fixes_count = 0`, `decisions_count = 0`, `fyi_count = 0`
 - `skipped_reason: skill_unreachable`
 - `skipped_detail: <why the host's normal skill-invocation mechanism could not start ce-doc-review>`
 
-The review never started: say that `ce-doc-review` did not run. Report a review error or timeout only after the `ce-doc-review` workflow actually begins.
+The caller runs `ce-doc-review` on a capable provider before handing on the plan. Report a review error or timeout only after the `ce-doc-review` workflow actually begins. If review starts but cannot complete, preserve the draft and return the blocked result with the observed failure and recovery path.
 
 Non-interactive is the default at this phase because most users want to start work after planning, not adjudicate every reviewer concern up front. Non-interactive returns structured findings without blocking prompts. Its applied list includes corrections covered by the permission to edit you supplied; proposals still needing approval and unresolved user decisions remain separate. The post-generation menu (see 5.4) offers `Decide on the review's open items` as a first-class option so users can opt into the full interactive walkthrough when they want it.
 
@@ -30,7 +32,7 @@ For a retained correction, invoke `ce-doc-review` with the resolved review, evid
 
 Save actual edits and the reviewed document's identity with the resolved review. Only its remaining findings supply the handoff and menu counts; original counts stay in the saved evidence. Dismissed and completed items must not reappear as FYIs or deferred questions. Proceed to Final Checks when the resolved review and any authorized corrections are complete.
 
-**Pipeline mode:** Invoke `ce-doc-review` with `mode:non-interactive` and the plan path — non-interactive mode is identical to the interactive default at this phase. No further routing is offered in pipeline mode; the caller decides what to do with the returned findings. Address any P0/P1 findings before returning control to the caller. If the review could not start and ce-plan recorded the `skill_unreachable` stand-in result, return that result explicitly so the caller does not treat review as complete.
+**Pipeline mode:** Use the same non-interactive review and address any P0/P1 findings before returning control to the caller.
 
 ## 5.3.9 Final Checks and Cleanup
 
@@ -51,15 +53,15 @@ After all mutations in this run have settled (initial write, deepening synthesis
 
 ## 5.4 Post-Generation Options
 
-**Already-authorized next action:** If the request already authorizes what happens after the plan (implement, open a goal, create an issue, stop), fire that action. Do not present the menu to re-ask. Pipeline mode still returns to the caller.
+**Execution handoff:** After review and any corrections, assess the final plan against its implementation contract and repository evidence. Do not offer execution while a material prerequisite is unverified or a launch-blocking question or finding remains. Name the blocker in the plan and handoff. In pipeline mode return `status: blocked` with the artifact path, blocker, and recovery path. Deferred details and explicitly planned new files do not prevent handoff.
 
-**Execution handoff:** After review and any corrections, assess the final plan against its implementation contract and repository evidence. Do not offer execution while a material prerequisite is unverified or a launch-blocking question or finding remains. Name the blocker in the plan and handoff; in pipeline mode return `status: blocked` with the artifact path, blocker, and recovery path. A skipped review is not a pass; establish the needed evidence within the planning request or report the gap. Deferred details and explicitly planned new files do not prevent handoff.
+**Already-authorized next action:** If the request already authorizes the next action and its prerequisites are met, fire it. Do not present the menu to re-ask. Pipeline mode still returns to the caller.
 
-**Pipeline mode:** No interactive menu. The result below is the last thing this skill writes. It ends this skill, not the turn. The caller runs in this same session, and its next step follows the result. If document review started but did not complete, return the skill's `status: blocked` result with `phase`, `blocker`, `recovery_path`, and the preserved `artifact_path`. Otherwise return the resolved structured review result from completion, or the `skill_unreachable` stand-in recorded when the review never started.
+**Pipeline mode:** Return the plan path, confidence check, and resolved structured result from the completed `ce-doc-review`. It ends this skill, not the turn. The caller decides what happens next.
 
 **Path format:** Use absolute paths for chat-output file references — relative paths are not auto-linked as clickable in most terminals.
 
-**Summary line above the menu (always):** Print a single concise line summarizing the resolved review state — e.g., `Doc review applied 3 fixes. 2 decisions, 1 proposed fix, 4 FYI observations remain (1 at P1).` When no fixes were applied and no findings remain, print `Doc review clean — no fixes needed.` When the structured review result carries `skipped_reason: skill_unreachable`, print `Doc review skipped — ce-doc-review could not be invoked (<skipped_detail>); it did not run.` If a review that actually began failed, print `Doc review failed after starting — <actual error>; the plan was not fully reviewed.` This line establishes what the autofix pass did (or didn't) so the user has the context to choose between the menu options below. Never describe a harness or delegation failure that kept the review from starting as a downstream skill timeout.
+**Summary line above the menu:** State how many review fixes were applied and how many proposals, decisions, and FYIs remain. Include the highest remaining severity. When review finds no actionable items or observations and makes no edits, print `Doc review clean — no fixes needed.`
 
 **Render only the findings that still need the reader.** Preserve the decision-first structure (Recommendation / Consequence if unchanged / Change / Basis) for retained actionable findings. Do not re-narrate them into dense paragraphs or unexplained identifiers. Explain any changed disposition in the saved review evidence; do not copy dismissed findings into the handoff. The summary reports changes actually made and items still unresolved after your judgment.
 
@@ -81,7 +83,7 @@ There is no "done" / "pause" option — the blocking question already waits, and
 
 **Menu rendering:** The menu has up to 5 options (execution options 1 and 2 render only for implementation-ready code, and option 2 only on hosts with goal capability; option 3 is the exclusive review-or-prototype slot — see below; Open in browser is HTML-only). Detect goal capability by capability, not by slash-command shape: Codex has it when `create_goal` is in the available tool list, while Claude Code has it through user-typed `/goal`. Account for each platform's blocking-question option cap rather than trimming choices: Claude Code `AskUserQuestion` supports up to 4 explicit options, and Codex `request_user_input` supports only 2-3 explicit options. When the visible menu exceeds the current platform's cap, render it as a numbered list in chat with the hint "Pick a number or describe what you want." When the visible menu fits the cap, use the platform's blocking tool and renumber the visible options 1-N. When no matching tool is in the current list or a real question call errors, fall back to the same numbered-list-in-chat rendering. Never silently skip the question.
 
-**Show `Decide on the review's open items` (option 3) only when the resolved review state has `proposed_fixes_count + decisions_count > 0` and no `skipped_reason: skill_unreachable`.** FYIs alone do not offer a decision to make. Keep their retained count in the summary even when this option is hidden. Renumber the visible menu options after applying this condition. `ce-doc-review` defines how a selected review resumes and returns.
+**Show `Decide on the review's open items` (option 3) only when the resolved review state has `proposed_fixes_count + decisions_count > 0`.** Keep the FYI count in the summary when this option is hidden. Renumber the visible menu options after applying this condition. `ce-doc-review` defines how a selected review resumes and returns.
 
 **Cross-skill invocation rule:** Invoke `ce-work`, `ce-doc-review`, and `ce-prototype` using the host's normal skill-invocation mechanism. Do not substitute a generic Task, Agent, or subagent; the invoked skill may still dispatch its own subagents according to its protocol.
 
@@ -115,7 +117,7 @@ Before acting on any selection received after a user turn, reload this file. The
 - **Create Issue** -> Follow the Issue Creation section below through an available connector, MCP, API, or documented CLI; no `linear` CLI is guaranteed, and one missing binary is not proof that the tracker is unavailable.
 - **Prototype a remaining feel-question** -> Invoke the `ce-prototype` skill under the cross-skill invocation rule, passing the plan path as the skill argument. Do not build a prototype in this skill. If it cannot be invoked, say that it did not run and return to the menu. After it returns, re-render this menu from the artifact's current contents — a plan it wrote back to needs implementation planning again, so the execution options drop out on their own; when it returned decisions instead of writing them, say so, since the plan still describes the pre-prototype behavior.
 - **Open in browser** -> Display the absolute path to the `.html` plan file so the user can open it locally. Where the platform exposes a browser-opening primitive (e.g., `open` on macOS, `xdg-open` on Linux, `start` on Windows), the agent may invoke it directly; otherwise print the absolute path and let the user open it. After the path is displayed (or the browser is opened), return to the post-generation options so the user can pick a follow-up action.
-- **Free-form prompts that target the findings** (e.g., the user types "review", "walk through", "deep review" instead of picking a numbered option) -> route as if they had picked `Decide on the review's open items`. Do not loop back to the menu without running the review. When the structured review result carries `skipped_reason: skill_unreachable`, say that `ce-doc-review` could not be invoked and loop back without misreporting a review failure.
+- **Free-form prompts that target the findings** (e.g., "review", "walk through", "deep review") -> route as if the user had picked `Decide on the review's open items`.
 - **Other free-form input** -> Accept revisions to the plan and loop back to options.
 
 ## Issue Creation

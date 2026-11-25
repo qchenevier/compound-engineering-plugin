@@ -51,11 +51,11 @@ The commit rule from this file stays in force throughout: every implementation c
 
 After the tasks and local verification are complete, standalone mode reads `references/shipping-workflow.md` before any quality check or delivery. It decides simplification, code-review receipts and fallbacks, leftover findings, final validation, and delivery.
 
-**Code-review completion gate (standalone only).** Code review must actually happen before shipping. The run is not done, must not call a commit or shipping skill, and must not report that shipping is complete until the shipping reference has recorded either an actual completed `ce-code-review` receipt or one of its exact authorized skip states. Never substitute a mental self-review or findings already applied earlier. This rule does not apply in Return-to-Caller Mode.
+**Code-review completion gate (standalone only).** Code review gates any dependent push, merge, or run. The run is not done, must not call a commit or shipping skill, and must not report that shipping is complete until the shipping reference has recorded either an actual completed `ce-code-review` receipt or one of its exact authorized skip states. Never substitute a mental self-review or findings already applied earlier. This rule does not apply in Return-to-Caller Mode.
 
 ## Return-to-Caller Mode
 
-Return-to-Caller Mode performs implementation and local verification only. It must not enter Phase 3-4 or run final simplification, code review, PR creation, CI watching, babysitting, or any other standalone shipping action; the caller owns those steps.
+The caller selects this mode when the delegate cannot invoke required code review. This mode performs implementation and local verification only. It must not enter Phase 3-4. The caller owns all standalone shipping.
 
 Immediately before emitting the result, read `references/return-to-caller.md` again. It alone defines the full return result, the check that evidence is complete, the route and model records, recovery semantics, and `standalone_shipping_skipped: true`. Do not build a complete result from this file.
 

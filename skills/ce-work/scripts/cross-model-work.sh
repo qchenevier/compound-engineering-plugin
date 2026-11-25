@@ -111,9 +111,26 @@ validate_effort_override() {
   esac
 }
 
+resolve_managed_launcher() {
+  MANAGED_LAUNCHER=""
+  [ "$ROUTE" = codex ] && [ "${CE_CODEX_MANAGED:-}" != off ] || return 0
+  MANAGED_HELPER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/managed-codex.py"
+  local selection
+  selection="$("$PY" "$MANAGED_HELPER" resolve 2>&1)" || { MANAGED_ERROR="$selection"; return 2; }
+  MANAGED_LAUNCHER="$selection"
+}
+
 adapter_argv() {
   case "$1" in
     codex)
+      if [ -n "$MANAGED_LAUNCHER" ]; then
+        local codex_model
+        codex_model="$(route_model codex)"
+        printf '%s\0' "$PY" "$MANAGED_HELPER" run "$MANAGED_LAUNCHER" --cwd "$WORKSPACE" --brief-file "$PROMPT_FILE"
+        [ "$codex_model" = auto ] || printf '%s\0' --model "$codex_model"
+        [ -z "${CROSS_MODEL_EFFORT_OVERRIDE:-}" ] || printf '%s\0' --effort "$CROSS_MODEL_EFFORT_OVERRIDE"
+        return 0
+      fi
       # --ignore-user-config drops the user's model_reasoning_effort, so pin the
       # editorial tier explicitly, matching the claude/grok routes' --effort high.
       # CROSS_MODEL_EFFORT_OVERRIDE retunes all three effort-taking routes, the
@@ -181,6 +198,7 @@ if [ "${1:-}" = "--emit-adapter" ]; then
     printf "effort override '%s' not compatible with route '%s'\n" "${CROSS_MODEL_EFFORT_OVERRIDE:-}" "$ROUTE" >&2
     exit 2
   }
+  resolve_managed_launcher || { log "$MANAGED_ERROR"; exit 2; }
   adapter_argv "$ROUTE" >/dev/null 2>&1 || { printf "unknown route '%s'\n" "$ROUTE" >&2; exit 2; }
   adapter_argv "$ROUTE" | tr '\0' ' '
   printf '\n'
@@ -693,6 +711,11 @@ if [ "${CE_WORK_REQUIRE_ENFORCED_CONFINEMENT:-}" = "1" ]; then
   esac
 fi
 
+resolve_managed_launcher || {
+  publish_unavailable "$(printf '%s\n' "$MANAGED_ERROR" | redact_stream)" || exit 2
+  exit 2
+}
+
 case "$ROUTE" in
   codex) BINARY=codex ;;
   claude) BINARY=claude ;;
@@ -711,7 +734,7 @@ if ! command -v codex >/dev/null 2>&1; then
   done
   IFS="$OLDIFS"
 fi
-if ! command -v "$BINARY" >/dev/null 2>&1; then
+if [ -z "$MANAGED_LAUNCHER" ] && ! command -v "$BINARY" >/dev/null 2>&1; then
   publish_unavailable "fixed route executable '$BINARY' is unavailable" || exit 2
   exit 2
 fi
@@ -746,6 +769,10 @@ case "$ROUTE" in
     [ -n "${CURSOR_CONFIG_DIR:-}" ] && MIN_ENV+=("CURSOR_CONFIG_DIR=$CURSOR_CONFIG_DIR")
     ;;
 esac
+
+# The launcher owns the managed environment, including the user session bus
+# needed to enter a systemd scope.
+if [ -n "$MANAGED_LAUNCHER" ]; then MIN_ENV=(); fi
 
 # Cursor reports a human display label in its init receipt, not necessarily the
 # model key passed on argv. Capture the current catalog label before dispatch so
@@ -789,6 +816,7 @@ terminate_route() {
   exit 143
 }
 trap 'terminate_route' TERM INT
+if [ -n "$MANAGED_LAUNCHER" ]; then trap 'terminate_route' HUP; fi
 
 set +e
 (cd "$WORKSPACE" && exec "${MIN_ENV[@]}" "${ARGS[@]}" < "$PROMPT_FILE" > "$RAW_STDOUT" 2> "$RAW_STDERR") &
@@ -835,18 +863,28 @@ if [ -f "$RAW_LIMIT_MARKER" ]; then
 fi
 
 if [ "$ROUTE_EXIT" -ne 0 ]; then
+  if [ -n "$MANAGED_LAUNCHER" ]; then
+    reason="$(tail -n 1 "$RAW_STDERR" | redact_stream)"
+    reason="${reason:-managed Codex launcher exited with exit $ROUTE_EXIT}"
+    if [ "$ROUTE_EXIT" -eq 2 ]; then
+      publish_unavailable "$reason" || exit 2
+      exit 2
+    fi
+    publish_unavailable "$reason" failed "$ROUTE" || exit 2
+    exit 1
+  fi
   publish_unavailable "fixed route exited with exit $ROUTE_EXIT" failed "$ROUTE" || exit 2
   exit 1
 fi
 
 SOURCE="$RAW_STDOUT"
-[ "$ROUTE" = codex ] && SOURCE="$RAW_RESULT"
+[ "$ROUTE" = codex ] && [ -z "$MANAGED_LAUNCHER" ] && SOURCE="$RAW_RESULT"
 set +e
 CE_WORK_REDACT_FILE="${CE_WORK_REDACT_FILE:-}" "$PY" - \
   "$SOURCE" "$RAW_STDOUT" "$ROUTE" "$TARGET" "$HARNESS" \
-  "$MODEL_REQUESTED" "$EXPECTED_PACKET_DIGEST" "$LOG_FILE" "$ACTIVITY_POSTURE" "$RESTRICTION_POSTURE" "$MODEL_DISPLAY_HINT" <<'PY' | write_result_receipt
+  "$MODEL_REQUESTED" "$EXPECTED_PACKET_DIGEST" "$LOG_FILE" "$ACTIVITY_POSTURE" "$RESTRICTION_POSTURE" "$MODEL_DISPLAY_HINT" "${MANAGED_LAUNCHER:+managed}" <<'PY' | write_result_receipt
 import json, os, re, sys
-source, stream, route, target, harness, requested, packet_digest, log, activity, restriction, display_hint = sys.argv[1:]
+source, stream, route, target, harness, requested, packet_digest, log, activity, restriction, display_hint, managed = sys.argv[1:]
 
 def redactions():
     p=os.environ.get("CE_WORK_REDACT_FILE", "")
@@ -899,7 +937,11 @@ def normalize_served_model(value):
 
 try: raw=open(source, encoding="utf-8", errors="replace").read()
 except OSError: raw=""
-if route == "opencode":
+if managed:
+    try: answer=json.loads(raw).get("final_answer")
+    except (ValueError, AttributeError): answer=None
+    worker=parse_text(answer) if isinstance(answer, str) else None
+elif route == "opencode":
     parts=[]
     for line in raw.splitlines():
         try: event=json.loads(line)
@@ -925,7 +967,10 @@ if valid:
         or (worker["terminal_status"]!="scope_expansion" and worker.get("scope_expansion") is None)))
 
 served="unverified"
-if source == stream:
+if managed:
+    # The launcher report supplies no served-model attestation.
+    stream_text=""
+elif source == stream:
     stream_text=raw
 else:
     try: stream_text=open(stream, encoding="utf-8", errors="replace").read()

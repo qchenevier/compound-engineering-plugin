@@ -152,7 +152,7 @@ esac
   return bin
 }
 
-function run(
+function prepareDispatch(
   route: typeof ROUTES[number],
   f: ReturnType<typeof fixture>,
   env: NodeJS.ProcessEnv = process.env,
@@ -210,9 +210,19 @@ function run(
     worker_argv: [...workerPrefix, ...adapterArgv],
     result_path: path.join(f.resultDir, "implementation-result.json"),
   })}\n`, { mode: 0o600 })
-  const proc = spawnSync(workerPrefix[0] ?? SCRIPT, workerPrefix.length ? [...workerPrefix.slice(1), ...adapterArgv] : adapterArgv.slice(1), {
+  return {
+    command: [...workerPrefix, ...adapterArgv],
+    env: { ...env, CE_CODEX_MANAGED: env.CE_CODEX_MANAGED ?? "off", CE_WORK_RUNS_ROOT: f.runs, CE_PEER_JOB_ID: jobId },
+  }
+}
+
+function run(...args: Parameters<typeof prepareDispatch>) {
+  const [, f] = args
+  const { command, env } = prepareDispatch(...args)
+  const proc = spawnSync(command[0], command.slice(1), {
     encoding: "utf8",
-    env: { ...env, CE_WORK_RUNS_ROOT: f.runs, CE_PEER_JOB_ID: jobId },
+    env,
+    timeout: 15_000,
   })
   const resultPath = path.join(f.resultDir, "implementation-result.json")
   return {
@@ -231,8 +241,163 @@ function emit(route: string, env: NodeJS.ProcessEnv = process.env) {
 function cleanEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env }
   delete env.CROSS_MODEL_EFFORT_OVERRIDE
+  env.CE_CODEX_MANAGED = "off"
+  delete env.CE_CODEX_MANAGED_LAUNCHER
   return env
 }
+
+function launcherFixture(f: ReturnType<typeof fixture>, mode: "success" | "start-failure" | "running" = "success") {
+  const home = path.join(f.root, "home")
+  const record = path.join(home, ".config", "cosma", "codex-agent-launcher")
+  const launcher = path.join(f.root, "managed launcher.py")
+  const trace = path.join(f.capture, "launcher.jsonl")
+  const worker = {
+    terminal_status: "completed", summary: "implemented", changed_files: ["result.txt"],
+    evidence: ["focused test passed"], scope_expansion: null,
+  }
+  const finalAnswer = ["```json", JSON.stringify(worker), "```"].join("\n")
+  mkdirSync(path.dirname(record), { recursive: true })
+  writeFileSync(record, `${launcher}\n`)
+  writeFileSync(launcher, `import json, os, sys, time
+from pathlib import Path
+
+trace = Path(${JSON.stringify(trace)})
+argv = sys.argv[1:]
+command = argv[0]
+mode = ${JSON.stringify(mode)}
+previous = trace.read_text() if trace.exists() else ""
+with trace.open("a") as log:
+    log.write(json.dumps({"argv": argv, "runtime": os.getenv("XDG_RUNTIME_DIR"), "bus": os.getenv("DBUS_SESSION_BUS_ADDRESS")}) + "\\n")
+
+if command == "start":
+    cwd = Path(argv[argv.index("--cwd") + 1])
+    brief = Path(argv[argv.index("--brief-file") + 1]).read_text()
+    assert "Implement U3 only." in brief
+    print("fake-job")
+    if mode == "start-failure":
+        sys.exit(1)
+    (cwd / "result.txt").write_text("READY\\n")
+elif command == "wait":
+    assert argv[1] == "fake-job" or argv[-1] == "fake-job"
+    assert 0 < float(argv[argv.index("--max-secs") + 1]) <= 60
+    if mode == "running":
+        time.sleep(0.1)
+    print(json.dumps({"status": "running" if mode == "running" or '"wait"' not in previous else "completed"}))
+elif command == "result":
+    report = {
+        "exit_status": 1 if mode == "start-failure" else 0,
+        "failure": {"stage": "schema check", "cause": "fake version mismatch"} if mode == "start-failure" else None,
+        "final_answer": ${JSON.stringify(finalAnswer)},
+        "reviews": [{"command": ${JSON.stringify(JSON.stringify({ ...worker, summary: "review text is not the final answer" }))}}],
+        "refusals": [{"status": "denied"}],
+    }
+    print(json.dumps(report))
+elif command == "stop":
+    assert argv[1:] == ["fake-job"]
+    print(json.dumps({"status": "stopped"}))
+else:
+    sys.exit(99)
+`, { mode: 0o600 })
+  const calls = (): { argv: string[]; runtime: string; bus: string }[] => existsSync(trace)
+    ? readFileSync(trace, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line))
+    : []
+  const bin = fakeBin("codex", f.capture)
+  const env = {
+    ...cleanEnv(), HOME: home, PATH: `${bin}:${process.env.PATH}`, CE_CODEX_MANAGED: "",
+    XDG_RUNTIME_DIR: path.join(f.root, "runtime"), DBUS_SESSION_BUS_ADDRESS: "unix:path=/fake/bus",
+  }
+  return { record, launcher, calls, env }
+}
+
+describe("ce-work Codex launcher selection", () => {
+  test("a missing recorded launcher is an unavailable startup with a named cause", () => {
+    const f = fixture()
+    const { env, launcher } = launcherFixture(f)
+    rmSync(launcher)
+    const result = run("codex", f, env)
+    expect(result.code).toBe(2)
+    expect(result.result).toMatchObject({
+      terminal_status: "unavailable", actual_route: null, failure_reason: expect.stringContaining("managed Codex launcher missing"),
+    })
+    expect(existsSync(path.join(f.capture, "argv"))).toBe(false)
+  })
+
+  test("the managed launcher inherits the bus, model, and effort and yields the usual result receipt", () => {
+    const f = fixture()
+    const { calls, env } = launcherFixture(f)
+    const result = run("codex", f, { ...env, CROSS_MODEL_EFFORT_OVERRIDE: "max" }, undefined, { model_requested: "gpt-5.6-sol" })
+    expect(result.code).toBe(0)
+    expect(result.result).toMatchObject({
+      terminal_status: "completed", summary: "implemented", actual_route: "codex", model_requested: "gpt-5.6-sol",
+      model_actual: "unverified", model_receipt_status: "unverified", changed_files: ["result.txt"],
+    })
+    const received = calls()
+    expect(received.map(({ argv }) => argv[0])).toEqual(["start", "wait", "wait", "result"])
+    expect(received[0]).toMatchObject({ runtime: env.XDG_RUNTIME_DIR, bus: env.DBUS_SESSION_BUS_ADDRESS })
+    const argv = received[0].argv
+    expect(argv[argv.indexOf("--cwd") + 1]).toBe(realpathSync(f.workspace))
+    expect(argv[argv.indexOf("--model") + 1]).toBe("gpt-5.6-sol")
+    expect(argv[argv.indexOf("--effort") + 1]).toBe("max")
+    expect(received.flatMap(({ argv }) => argv)).not.toContain("--ignore-user-config")
+    expect(received.flatMap(({ argv }) => argv)).not.toContain("--ignore-rules")
+    const introspection = emit("codex", env)
+    expect(introspection.status).toBe(0)
+    expect(introspection.stdout).not.toMatch(/--ignore-user-config|--ignore-rules/)
+    expect(existsSync(path.join(f.capture, "argv"))).toBe(false)
+    expect(readFileSync(result.result.raw_log, "utf8")).toContain('"refusals"')
+  })
+
+  test("an explicit launcher overrides the record and preserves a failed start's report", () => {
+    const f = fixture()
+    const { calls, env, launcher, record } = launcherFixture(f, "start-failure")
+    writeFileSync(record, `${launcher}.missing\n`)
+    const result = run("codex", f, { ...env, CE_CODEX_MANAGED_LAUNCHER: launcher })
+    expect(result.code).toBe(2)
+    expect(result.result.terminal_status).toBe("unavailable")
+    expect(result.result.failure_reason).toContain("fake version mismatch")
+    expect(result.result.failure_reason).toContain("schema check")
+    expect(calls().map(({ argv }) => argv[0])).toEqual(["start", "result"])
+    expect(existsSync(path.join(f.capture, "argv"))).toBe(false)
+  })
+
+  test.each(["no record", "explicit off"])("standalone keeps its argv and stripped environment with %s", (mode) => {
+    const f = fixture()
+    const { calls, env, launcher, record } = launcherFixture(f)
+    if (mode === "no record") rmSync(record)
+    const standaloneEnv = mode === "no record" ? env : { ...env, CE_CODEX_MANAGED: "off", CE_CODEX_MANAGED_LAUNCHER: launcher }
+    const result = run("codex", f, standaloneEnv)
+    expect(result.code).toBe(0)
+    expect(result.result.terminal_status).toBe("completed")
+    expect(emit("codex", standaloneEnv).stdout).toBe(
+      "codex exec --ignore-user-config --ignore-rules --ephemeral -s workspace-write -C <workspace> --json -o <raw-result> -c model_reasoning_effort=high - \n",
+    )
+    expect(readFileSync(path.join(f.capture, "env"), "utf8")).not.toMatch(/XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS/)
+    expect(calls()).toEqual([])
+  })
+
+  test.each(["SIGTERM", "SIGINT", "SIGHUP"] as const)("%s stops the detached managed job", async (signal) => {
+    if (process.platform === "win32") return
+    const f = fixture()
+    const { calls, env } = launcherFixture(f, "running")
+    const dispatch = prepareDispatch("codex", f, env)
+    const child = Bun.spawn(dispatch.command, { env: dispatch.env, stdout: "ignore", stderr: "ignore" })
+    try {
+      const deadline = Date.now() + 5000
+      while (child.exitCode === null && Date.now() < deadline && !calls().some(({ argv }) => argv[0] === "wait")) {
+        await Bun.sleep(20)
+      }
+      expect(calls().some(({ argv }) => argv[0] === "wait")).toBe(true)
+      child.kill(signal)
+      const stopDeadline = Date.now() + 5000
+      while (child.exitCode === null && Date.now() < stopDeadline) await Bun.sleep(20)
+      expect(child.exitCode).toBe(143)
+      expect(calls().filter(({ argv }) => argv[0] === "stop").map(({ argv }) => argv)).toEqual([["stop", "fake-job"]])
+    } finally {
+      if (child.exitCode === null) child.kill("SIGKILL")
+      await child.exited
+    }
+  })
+})
 
 describe("ce-work fixed write routes", () => {
   test("production argv uses the qualified noninteractive write posture", () => {
